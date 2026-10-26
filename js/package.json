@@ -1,0 +1,9 @@
+{
+  "name": "jsbedded-js",
+  "private": true,
+  "description": "npm workspace root for packages published under @jsbedded (no code here)",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*"
+  ]
+}

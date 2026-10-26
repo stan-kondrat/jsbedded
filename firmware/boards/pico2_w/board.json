@@ -1,0 +1,10 @@
+{
+  "name": "pico2_w",
+  "title": "Raspberry Pi Pico 2 W",
+  "platform": "pico",
+  "family": "rp2",
+  "mcu": "rp2350",
+  "flash_kb": 4096,
+  "sram_kb": 520,
+  "peripherals": ["gpio", "uart:2", "i2c:2", "spi:2", "pwm", "adc", "pio:3", "wifi", "ble"]
+}

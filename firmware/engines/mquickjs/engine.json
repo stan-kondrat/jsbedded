@@ -1,0 +1,8 @@
+{
+  "name": "mquickjs",
+  "upstream": "https://github.com/bellard/mquickjs",
+  "language": null,
+  "min_flash_kb": null,
+  "min_ram_kb": null,
+  "features": {}
+}

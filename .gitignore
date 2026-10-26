@@ -1,0 +1,21 @@
+# build output
+/build/
+
+# js
+node_modules/
+*.tsbuildinfo
+dist/
+
+# docs site
+/docs/.vitepress/cache/
+/docs/.vitepress/dist/
+
+# generated reference docs and data
+/docs/api/reference/
+/docs/porting/reference/
+/docs/data/*.json
+
+# editors / OS
+.DS_Store
+.idea/
+.vscode/

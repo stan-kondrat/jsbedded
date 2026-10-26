@@ -1,0 +1,10 @@
+{
+  "name": "pico",
+  "title": "Raspberry Pi Pico",
+  "platform": "pico",
+  "family": "rp2",
+  "mcu": "rp2040",
+  "flash_kb": 2048,
+  "sram_kb": 264,
+  "peripherals": ["gpio", "uart:2", "i2c:2", "spi:2", "pwm", "adc", "pio:2"]
+}
