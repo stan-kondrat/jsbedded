@@ -1,0 +1,10 @@
+{
+  "name": "esp32s3_devkitc",
+  "title": "ESP32-S3-DevKitC-1",
+  "platform": "esp-idf",
+  "family": "esp32s3",
+  "mcu": "esp32s3",
+  "flash_kb": 8192,
+  "sram_kb": 512,
+  "peripherals": ["gpio", "uart:3", "i2c:2", "spi:2", "pwm", "adc", "usb", "wifi", "ble"]
+}

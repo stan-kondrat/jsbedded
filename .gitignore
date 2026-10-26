@@ -19,3 +19,10 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+
+# ESP-IDF (the build puts sdkconfig in build/; these catch manual idf.py runs)
+/firmware/hal/esp-idf/sdkconfig
+/firmware/hal/esp-idf/sdkconfig.old
+/firmware/hal/esp-idf/build/
+/firmware/hal/esp-idf/dependencies.lock
+/firmware/hal/esp-idf/managed_components/

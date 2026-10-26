@@ -1,12 +1,21 @@
 [submodule "third_party/ant"]
 	path = third_party/ant
 	url = https://github.com/theMackabu/ant
+	ignore = dirty
 [submodule "third_party/mquickjs"]
 	path = third_party/mquickjs
 	url = https://github.com/bellard/mquickjs
+	ignore = dirty
 [submodule "third_party/pico-sdk"]
 	path = third_party/pico-sdk
 	url = https://github.com/raspberrypi/pico-sdk
+	ignore = dirty
 [submodule "third_party/quickjs"]
 	path = third_party/quickjs
 	url = https://github.com/bellard/quickjs
+	ignore = dirty
+[submodule "third_party/esp-idf"]
+	path = third_party/esp-idf
+	url = https://github.com/espressif/esp-idf
+	ignore = dirty
+	shallow = true

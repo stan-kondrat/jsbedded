@@ -9,4 +9,5 @@ Engine-neutral runtime services:
 - **recovery** — reset-button safe mode, boot-loop detection, script removal
 - **errors** — uncaught exception reporting with source positions
 
-Public headers go in `include/jsb/`, sources in `src/`.
+Public headers go in `include/jsb/`, sources in `src/`; `core.cmake` lists them for
+every platform build. Today `src/main.c` is only a hello loop (`jsb_main()`).
