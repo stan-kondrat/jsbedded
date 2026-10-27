@@ -13,7 +13,7 @@ boards                 firmware/boards    pin maps, memory, peripherals
 ## Rules
 
 - One engine per firmware image, chosen at build time (`ENGINE=`).
-- `api/` and `core/` depend only on `adapter.h` and `hal.h`.
+- `api/` and `core/` depend only on `jsb/engine.h` and `jsb/hal.h`.
 - The public JS API is defined once, in the API typings in `js/`; C bindings and
   reference docs are generated from it.
 - No bytecode portability is assumed across engines or engine versions.

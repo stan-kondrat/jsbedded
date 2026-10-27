@@ -1,7 +1,9 @@
 {
   "name": "quickjs",
   "upstream": "https://github.com/bellard/quickjs",
-  "language": null,
+  "submodules": ["third_party/quickjs"],
+  "unsupported_boards": ["pico", "pico_w", "esp32c3_devkitm"],
+  "language": "ES2025 (almost complete; no Atomics, no Intl)",
   "min_flash_kb": null,
   "min_ram_kb": null,
   "features": {}

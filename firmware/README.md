@@ -3,14 +3,16 @@
 C code that runs on the microcontroller. Builds on its own:
 
 ```bash
-make -C firmware BOARD=pico2                  # -> build/pico2/jsbedded-pico2.uf2
+make -C firmware BOARD=pico2                  # -> build/pico2-none/jsbedded-pico2-none.uf2
 . third_party/esp-idf/export.sh               # ESP32 boards need the ESP-IDF environment
-make -C firmware BOARD=esp32s3_devkitc        # -> build/esp32s3_devkitc/jsbedded-esp32s3_devkitc.bin
-make -C firmware boards                       # list boards
+make -C firmware BOARD=esp32s3_devkitc        # -> build/esp32s3_devkitc-none/jsbedded-esp32s3_devkitc-none.bin
+make -C firmware boards engines               # list boards and engines
 ```
 
-Today the image only prints a hello line once a second and blinks the LED where
-there is a simple one. `ENGINE=` is accepted but unused until engine adapters exist.
+Today the image runs a one-line boot script on the engine (`ENGINE=none` has no
+JavaScript and says so), then prints a heartbeat line once a second and blinks
+the LED where there is a simple one. Engines: `engines/<engine>/`; `ENGINE`
+defaults to `none` until a real engine builds.
 
 | Folder | Role |
 |---|---|

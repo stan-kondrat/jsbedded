@@ -1,7 +1,7 @@
 # Shared defaults. Override on the command line: make firmware BOARD=pico ENGINE=ant
 
 BOARD     ?= pico2
-ENGINE    ?= mquickjs
+ENGINE    ?= none
 BUILD_DIR ?= build
 
 FIRMWARE_DIR := firmware

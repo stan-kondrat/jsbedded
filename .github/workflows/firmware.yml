@@ -1,7 +1,9 @@
-# Builds the firmware for every board from source and publishes releases:
+# Builds the firmware for every board × engine from source and publishes releases:
 #   pull request -> build only (images as workflow artifacts)
 #   push to main -> build + refresh the rolling "latest" pre-release
 #   tag v*       -> build + release for that tag
+# The matrix comes from the folders: firmware/boards/*/board.mk × firmware/engines/*/engine.cmake,
+# minus each engine.json "unsupported_boards" (scripts/matrix/ci-matrix.sh).
 name: firmware
 
 on:
@@ -14,19 +16,25 @@ permissions:
   contents: read
 
 jobs:
+  matrix:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - id: matrix
+        run: |
+          matrix=$(sh scripts/matrix/ci-matrix.sh)
+          echo "$matrix" | jq .
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
   build:
-    name: build (${{ matrix.board }})
+    name: build (${{ matrix.board }}, ${{ matrix.engine }})
+    needs: matrix
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { board: pico,            platform: pico }
-          - { board: pico_w,          platform: pico }
-          - { board: pico2,           platform: pico }
-          - { board: pico2_w,         platform: pico }
-          - { board: esp32s3_devkitc, platform: esp-idf }
-          - { board: esp32c3_devkitm, platform: esp-idf }
+      matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
     env:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
       CCACHE_MAXSIZE: 500M
@@ -42,14 +50,17 @@ jobs:
           echo "pico_sdk=$(git rev-parse HEAD:third_party/pico-sdk)" >> "$GITHUB_OUTPUT"
           echo "esp_idf=$(git rev-parse HEAD:third_party/esp-idf)" >> "$GITHUB_OUTPUT"
 
-      # --- pico-sdk -------------------------------------------------------
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          if [ "${{ matrix.platform }}" = pico ]; then
+            sudo apt-get install -y -qq --no-install-recommends cmake ninja-build ccache \
+              gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib
+          else
+            sudo apt-get install -y -qq --no-install-recommends ccache
+          fi
 
-      - name: Install Pico toolchain
-        if: matrix.platform == 'pico'
-        uses: awalsh128/cache-apt-pkgs-action@v1.6.3
-        with:
-          packages: cmake ninja-build ccache gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib libusb-1.0-0-dev pkg-config
-          version: 1
+      # --- pico-sdk -------------------------------------------------------
 
       - name: Cache pico-sdk checkout
         if: matrix.platform == 'pico'
@@ -75,13 +86,6 @@ jobs:
           key: picotool-${{ steps.sdk.outputs.pico_sdk }}
 
       # --- ESP-IDF --------------------------------------------------------
-
-      - name: Install ccache
-        if: matrix.platform == 'esp-idf'
-        uses: awalsh128/cache-apt-pkgs-action@v1.6.3
-        with:
-          packages: ccache
-          version: 1
 
       - name: Cache ESP-IDF checkout
         if: matrix.platform == 'esp-idf'
@@ -110,6 +114,12 @@ jobs:
         if: matrix.platform == 'esp-idf'
         run: third_party/esp-idf/install.sh esp32s3,esp32c3
 
+      # --- engine ---------------------------------------------------------
+
+      - name: Check out engine submodules
+        if: matrix.submodules != ''
+        run: git submodule update --init --depth 1 ${{ matrix.submodules }}
+
       # --- build ----------------------------------------------------------
 
       - name: Register submodules restored from cache
@@ -119,9 +129,10 @@ jobs:
         uses: actions/cache@v6.1.0
         with:
           path: .ccache
-          key: ccache-${{ matrix.board }}-${{ hashFiles('firmware/**') }}-${{ github.sha }}
+          key: ccache-${{ matrix.board }}-${{ matrix.engine }}-${{ hashFiles('firmware/**') }}-${{ github.sha }}
           restore-keys: |
-            ccache-${{ matrix.board }}-${{ hashFiles('firmware/**') }}-
+            ccache-${{ matrix.board }}-${{ matrix.engine }}-${{ hashFiles('firmware/**') }}-
+            ccache-${{ matrix.board }}-${{ matrix.engine }}-
             ccache-${{ matrix.board }}-
 
       - name: Build
@@ -129,13 +140,13 @@ jobs:
           if [ "${{ matrix.platform }}" = esp-idf ]; then
             . third_party/esp-idf/export.sh > /dev/null
           fi
-          make firmware BOARD=${{ matrix.board }}
+          make firmware BOARD=${{ matrix.board }} ENGINE=${{ matrix.engine }}
           ccache --show-stats || true
 
       - uses: actions/upload-artifact@v7.0.2
         with:
-          name: ${{ matrix.board }}
-          path: build/${{ matrix.board }}/jsbedded-${{ matrix.board }}.*
+          name: ${{ matrix.board }}-${{ matrix.engine }}
+          path: build/${{ matrix.board }}-${{ matrix.engine }}/jsbedded-${{ matrix.board }}-${{ matrix.engine }}.*
           if-no-files-found: error
 
   release:
@@ -154,7 +165,7 @@ jobs:
 
       - uses: actions/download-artifact@v8.0.2
         with:
-          path: build # one folder per board, as in a local build
+          path: build # one folder per board-engine, as in a local build
 
       - name: Collect images and checksums
         run: make dist

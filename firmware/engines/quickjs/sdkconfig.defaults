@@ -1,0 +1,9 @@
+# ESP-IDF settings QuickJS needs, on top of hal/esp-idf/sdkconfig.defaults.
+# hal/esp-idf/platform.mk passes it in SDKCONFIG_DEFAULTS after the platform defaults.
+
+# QuickJS runs on the main task. Parsing and running a script needs ~16 KB of C
+# stack; the default is 3584 bytes. engine.cmake gives QuickJS this size minus 3 KB.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+
+# QuickJS adds an estimated 700-900 KB of code; the default factory partition is 1 MB.
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y

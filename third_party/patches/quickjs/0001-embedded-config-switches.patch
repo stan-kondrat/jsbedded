@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: JSBedded <noreply@jsbedded.invalid>
+Date: Tue, 27 Oct 2026 00:00:00 +0000
+Subject: [PATCH] Add CONFIG_NO_ATOMICS and CONFIG_NO_MALLOC_USABLE_SIZE
+
+Local-only (not sent upstream yet): bare-metal and RTOS targets build
+QuickJS without OS threads or a libc malloc_usable_size().
+
+- CONFIG_ATOMICS is defined unconditionally outside Emscripten and pulls
+  in <pthread.h>, pthread mutexes/condition variables and clock_gettime().
+  arm-none-eabi newlib (pico-sdk) has no pthreads, so the build fails.
+  CONFIG_NO_ATOMICS leaves Atomics out, as the Emscripten build already does.
+- js_def_malloc_usable_size() calls malloc_usable_size() without a
+  declaration on non-glibc libcs (<malloc.h> is only included on
+  Linux/glibc), which is an error with GCC >= 14 (ESP-IDF v6).
+  CONFIG_NO_MALLOC_USABLE_SIZE returns 0 there, as upstream's comment
+  suggests. JSBedded installs its own allocator, so the default one is
+  unused anyway.
+---
+ quickjs.c | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/quickjs.c b/quickjs.c
+index fa5a7a9..d3cc84a 100644
+--- a/quickjs.c
++++ b/quickjs.c
+@@ -67,8 +67,9 @@
+ #endif
+ 
+ /* define to include Atomics.* operations which depend on the OS
+-   threads */
+-#if !defined(__EMSCRIPTEN__)
++   threads. Define CONFIG_NO_ATOMICS to leave them out on targets
++   without threads (no pthreads needed then). */
++#if !defined(__EMSCRIPTEN__) && !defined(CONFIG_NO_ATOMICS)
+ #define CONFIG_ATOMICS
+ #endif
+ 
+@@ -2140,7 +2141,7 @@ static size_t js_def_malloc_usable_size(const void *ptr)
+     return malloc_size(ptr);
+ #elif defined(_WIN32)
+     return _msize((void *)ptr);
+-#elif defined(__EMSCRIPTEN__)
++#elif defined(__EMSCRIPTEN__) || defined(CONFIG_NO_MALLOC_USABLE_SIZE)
+     return 0;
+ #elif defined(__linux__) || defined(__GLIBC__)
+     return malloc_usable_size((void *)ptr);
+-- 
+2.43.0
+

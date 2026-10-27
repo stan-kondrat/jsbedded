@@ -14,8 +14,8 @@ include mk/test.mk
 help:
 	@echo "JSBedded make targets (BOARD=$(BOARD) ENGINE=$(ENGINE))"
 	@echo ""
-	@echo "  firmware        build one image   -> $(BUILD_DIR)/<board>/jsbedded-<board>.<uf2|bin>"
-	@echo "  firmware-all    build every board that has a board.mk"
+	@echo "  firmware        build one image   -> $(BUILD_DIR)/<board>-<engine>/jsbedded-<board>-<engine>.<uf2|bin>"
+	@echo "  firmware-all    build every board for ENGINE (default: none)"
 	@echo "  js              install and build the js/ workspace"
 	@echo "  codegen         generate C bindings from the API typings in js/"
 	@echo "  docs            docs dev server"
