@@ -69,3 +69,10 @@ Not measured on hardware yet.
 All six boards are expected to work; `unsupported_boards` is empty. Code size is
 about 100 KB of Thumb-2 per upstream, well inside 2–8 MB of flash. `min_flash_kb`
 and `min_ram_kb` stay `null` until measured (`bench/`).
+
+## Toolchain notes
+
+Ubuntu's arm-none-eabi newlib leaves `PRIu64` and the other 64-bit `PRI*` macros
+undefined, so the MQuickJS sources are compiled with
+`../include/compat/` on the include path. Its `inttypes.h` includes the real one
+(`#include_next`) and defines only the missing macros.

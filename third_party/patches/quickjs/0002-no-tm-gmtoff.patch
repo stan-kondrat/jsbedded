@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: JSBedded <noreply@jsbedded.invalid>
+Date: Tue, 27 Oct 2026 00:00:00 +0000
+Subject: [PATCH] Add CONFIG_NO_TM_GMTOFF
+
+Local-only (not sent upstream yet): newlib (pico-sdk, ESP-IDF) has no
+struct tm member tm_gmtoff, so getTimezoneOffset() does not compile.
+CONFIG_NO_TM_GMTOFF uses the gmtime()/mktime() path upstream already
+has for Windows.
+---
+ quickjs.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/quickjs.c b/quickjs.c
+--- a/quickjs.c
++++ b/quickjs.c
+@@ -47251,7 +47251,7 @@ static int getTimezoneOffset(int64_t time)
+         }
+     }
+     ti = time;
+-#if defined(_WIN32)
++#if defined(_WIN32) || defined(CONFIG_NO_TM_GMTOFF)
+     {
+         struct tm *tm;
+         time_t gm_ti, loc_ti;
+-- 
+2.43.0

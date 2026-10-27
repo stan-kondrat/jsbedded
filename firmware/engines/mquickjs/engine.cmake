@@ -41,7 +41,8 @@ set(JSB_ENGINE_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/adapter_mquickjs.c
     ${JSB_MQUICKJS_LIB_SOURCES}
 )
-set(JSB_ENGINE_INCLUDE_DIRS ${JSB_MQUICKJS_GEN} ${JSB_MQUICKJS_SRC})
+# compat/inttypes.h: adds PRIu64 & co., missing in arm-none-eabi newlib (pico-sdk).
+set(JSB_ENGINE_INCLUDE_DIRS ${JSB_FIRMWARE_DIR}/engines/include/compat ${JSB_MQUICKJS_GEN} ${JSB_MQUICKJS_SRC})
 set(JSB_ENGINE_DEFINITIONS JSB_MQUICKJS_HEAP_SIZE=${JSB_MQUICKJS_HEAP_SIZE})
 
 # ESP-IDF first reads component CMakeLists in script mode to collect requirements;

@@ -1,0 +1,7 @@
+# ESP-IDF settings Duktape needs, on top of hal/esp-idf/sdkconfig.defaults.
+# hal/esp-idf/platform.mk passes it in SDKCONFIG_DEFAULTS after the platform defaults.
+
+# Duktape runs on the main task. Its compiler and native calls recurse on the C
+# stack; the default is 3584 bytes. engine.cmake lets Duktape calls use this size
+# minus 4 KB before they throw RangeError.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384

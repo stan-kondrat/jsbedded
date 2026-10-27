@@ -1,0 +1,10 @@
+{
+  "name": "duktape",
+  "upstream": "https://github.com/svaarala/duktape",
+  "submodules": [],
+  "unsupported_boards": [],
+  "language": "ES5.1 (plus parts of ES2015+: typed arrays, Proxy, Reflect, Symbol, ** operator; no arrow functions, classes or Promise)",
+  "min_flash_kb": null,
+  "min_ram_kb": null,
+  "features": {}
+}

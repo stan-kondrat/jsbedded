@@ -72,7 +72,8 @@ set(JSB_ENGINE_SOURCES
     ${JSB_QUICKJS_SRC}/libunicode.c
     ${JSB_QUICKJS_SRC}/cutils.c
 )
-set(JSB_ENGINE_INCLUDE_DIRS ${JSB_QUICKJS_ROOT})
+# compat/inttypes.h: adds PRId64 & co., missing in arm-none-eabi newlib (pico-sdk).
+set(JSB_ENGINE_INCLUDE_DIRS ${JSB_FIRMWARE_DIR}/engines/include/compat ${JSB_QUICKJS_ROOT})
 
 # Per board: the JS heap limit (bytes QuickJS takes from the adapter's
 # allocator) and the C stack QuickJS may use before it throws a RangeError.
@@ -122,12 +123,15 @@ set(JSB_ENGINE_DEFINITIONS
     CONFIG_VERSION="${JSB_QUICKJS_VERSION}"
     CONFIG_NO_ATOMICS               # 0001-embedded-config-switches.patch: no pthreads
     CONFIG_NO_MALLOC_USABLE_SIZE    # same patch; the adapter brings its own allocator
+    CONFIG_NO_TM_GMTOFF             # 0002-no-tm-gmtoff.patch: newlib struct tm has no tm_gmtoff
 )
 
 # For all engine sources: size over speed (comes after, so overrides, the SDKs'
 # -O3 / -Og), and -fwrapv, which QuickJS relies on for signed overflow
 # (upstream Makefile).
-set(JSB_ENGINE_COMPILE_OPTIONS -Os -fwrapv)
+# -Wno-incompatible-pointer-types: int32_t is long on Xtensa (ESP32-S3), so
+# QuickJS's int * / int32_t * mixes are errors with GCC 14; both are 32-bit.
+set(JSB_ENGINE_COMPILE_OPTIONS -Os -fwrapv -Wno-incompatible-pointer-types)
 
 # QuickJS's own sources only: -w, so upstream warnings cannot fail ESP-IDF's
 # -Werror=all (GCC drops inhibited warnings before promoting them to errors).

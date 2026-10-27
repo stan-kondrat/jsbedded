@@ -137,11 +137,26 @@ jobs:
 
       - name: Build
         run: |
+          set -o pipefail
           if [ "${{ matrix.platform }}" = esp-idf ]; then
             . third_party/esp-idf/export.sh > /dev/null
           fi
-          make firmware BOARD=${{ matrix.board }} ENGINE=${{ matrix.engine }}
+          make firmware BOARD=${{ matrix.board }} ENGINE=${{ matrix.engine }} 2>&1 | tee "$RUNNER_TEMP/build.log"
           ccache --show-stats || true
+
+      # Job logs need a GitHub login; annotations are public (check-runs API),
+      # so the first error lines are readable without one.
+      - name: Report build errors
+        if: failure()
+        run: |
+          log="$RUNNER_TEMP/build.log"
+          [ -f "$log" ] || exit 0
+          grep -E 'error|Error|undefined reference|FATAL|No such file|not found' "$log" | head -10 |
+            sed -e 's/%/%25/g' -e 's/\r/%0D/g' |
+            while IFS= read -r line; do
+              echo "::error title=build ${{ matrix.board }} ${{ matrix.engine }}::$line"
+            done
+          tail -n 80 "$log"
 
       - uses: actions/upload-artifact@v7.0.2
         with:

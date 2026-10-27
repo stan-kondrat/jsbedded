@@ -19,3 +19,11 @@
 	url = https://github.com/espressif/esp-idf
 	ignore = dirty
 	shallow = true
+[submodule "third_party/jerryscript"]
+	path = third_party/jerryscript
+	url = https://github.com/jerryscript-project/jerryscript
+	ignore = dirty
+[submodule "third_party/duktape"]
+	path = third_party/duktape
+	url = https://github.com/svaarala/duktape
+	ignore = dirty

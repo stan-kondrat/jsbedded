@@ -6,7 +6,9 @@ language feature results come from host-run conformance tests.
 | Engine | Upstream |
 |---|---|
 | [Ant](./ant.md) | theMackabu/ant |
+| [Duktape](./duktape.md) | svaarala/duktape |
+| [JerryScript](./jerryscript.md) | jerryscript-project/jerryscript |
 | [MQuickJS](./mquickjs.md) | bellard/mquickjs |
 | [QuickJS](./quickjs.md) | bellard/quickjs |
 
-Under research: JerryScript, Duktape, Moddable XS, Espruino.
+Under research: Moddable XS, Espruino.

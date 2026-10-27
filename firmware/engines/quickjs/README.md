@@ -39,6 +39,10 @@ patch that no longer applies fails the configure. Building needs `git` on `PATH`
     `malloc_usable_size()`, which is only declared on Linux/glibc. GCC 14
     (ESP-IDF v6) rejects the implicit declaration. The adapter installs its own
     allocator, so the default one is unused.
+- `0002-no-tm-gmtoff.patch` (local only) adds `CONFIG_NO_TM_GMTOFF`:
+  `getTimezoneOffset()` reads `struct tm` `tm_gmtoff`, which newlib (pico-sdk,
+  ESP-IDF) does not have. The switch uses the `gmtime()`/`mktime()` path upstream
+  already has for Windows. With no time zone set, the offset is 0.
 
 The Intl use-after-free fix upstream (`4490e58`) doesn't apply: it patches
 `intl/`, which upstream added after this release. The pinned tree has no Intl.
@@ -147,3 +151,12 @@ Expected to work: **pico2, pico2_w, esp32s3_devkitc**. Listed in
 The unsupported boards still configure locally (`make firmware BOARD=pico
 ENGINE=quickjs`) with the limits above, for experiments. `min_flash_kb` and
 `min_ram_kb` stay `null` until measured (`bench/`).
+
+## Toolchain notes
+
+- `../include/compat/` on the include path: its `inttypes.h` wraps the real one
+  (`#include_next`) and adds the 64-bit `PRI*` macros, because Ubuntu's arm-none-eabi newlib
+  (pico-sdk) leaves `PRId64` and the other 64-bit `PRI*` macros undefined.
+- `-Wno-incompatible-pointer-types`: on Xtensa (ESP32-S3) `int32_t` is `long`,
+  so QuickJS's `int *` / `int32_t *` mixes are errors with GCC 14. Both types
+  are 32-bit there, so the code is correct.
