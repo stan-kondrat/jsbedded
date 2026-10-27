@@ -122,6 +122,7 @@ set(JSB_ENGINE_DEFINITIONS
     CONFIG_VERSION="${JSB_QUICKJS_VERSION}"
     CONFIG_NO_ATOMICS               # 0001-embedded-config-switches.patch: no pthreads
     CONFIG_NO_MALLOC_USABLE_SIZE    # same patch; the adapter brings its own allocator
+    CONFIG_NO_TM_GMTOFF             # 0002-no-tm-gmtoff.patch: newlib struct tm has no tm_gmtoff
 )
 
 # For all engine sources: size over speed (comes after, so overrides, the SDKs'

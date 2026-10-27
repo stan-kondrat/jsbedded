@@ -1,0 +1,7 @@
+# ESP-IDF settings JerryScript needs, on top of hal/esp-idf/sdkconfig.defaults.
+# hal/esp-idf/platform.mk passes it in SDKCONFIG_DEFAULTS after the platform defaults.
+
+# JerryScript runs on the main task; its parser and VM recurse on the C stack.
+# The default is 3584 bytes. engine.cmake sets JERRY_STACK_LIMIT to this size
+# minus 3 KB (13 KB), after which scripts get a RangeError.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384

@@ -39,6 +39,10 @@ patch that no longer applies fails the configure. Building needs `git` on `PATH`
     `malloc_usable_size()`, which is only declared on Linux/glibc. GCC 14
     (ESP-IDF v6) rejects the implicit declaration. The adapter installs its own
     allocator, so the default one is unused.
+- `0002-no-tm-gmtoff.patch` (local only) adds `CONFIG_NO_TM_GMTOFF`:
+  `getTimezoneOffset()` reads `struct tm` `tm_gmtoff`, which newlib (pico-sdk,
+  ESP-IDF) does not have. The switch uses the `gmtime()`/`mktime()` path upstream
+  already has for Windows. With no time zone set, the offset is 0.
 
 The Intl use-after-free fix upstream (`4490e58`) doesn't apply: it patches
 `intl/`, which upstream added after this release. The pinned tree has no Intl.
