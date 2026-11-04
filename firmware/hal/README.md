@@ -1,7 +1,8 @@
 # firmware/hal
 
 Hardware abstraction layer. [`include/jsb/hal.h`](include/jsb/hal.h) is the only
-interface `core/` and `api/` may use. One folder per platform SDK; each implements
+interface `core/` and `api/` may use. It covers the console, a monotonic millisecond clock, sleeping and GPIO
+(mode / write / read). One folder per platform SDK; each implements
 `hal.h`, provides the program entry point (which calls `jsb_main()`), and has a
 `platform.mk` that wraps that SDK's own build (CMake for pico-sdk and ESP-IDF).
 

@@ -3,7 +3,9 @@
 
 .PHONY: firmware firmware-all
 
-FIRMWARE_ARGS = BOARD=$(BOARD) ENGINE=$(ENGINE) BUILD_DIR=$(abspath $(BUILD_DIR))
+# SCRIPT is relative to the caller, so it is passed on as an absolute path.
+FIRMWARE_ARGS = BOARD=$(BOARD) ENGINE=$(ENGINE) BUILD_DIR=$(abspath $(BUILD_DIR)) \
+	$(if $(SCRIPT),SCRIPT=$(abspath $(SCRIPT)))
 
 firmware:
 	$(MAKE) -C $(FIRMWARE_DIR) $(FIRMWARE_ARGS)

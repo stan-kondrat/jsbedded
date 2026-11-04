@@ -1,6 +1,8 @@
 /* HAL on ESP-IDF (ESP32-S3, ESP32-C3). Console: UART0 (the dev board's USB-UART port). */
 #include <stdio.h>
 
+#include "driver/gpio.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -17,15 +19,53 @@ void jsb_hal_console_write(const char *s, size_t len)
     fflush(stdout);
 }
 
-void jsb_hal_sleep_ms(uint32_t ms)
+uint64_t jsb_hal_millis(void)
 {
-    vTaskDelay(pdMS_TO_TICKS(ms));
+    return (uint64_t)esp_timer_get_time() / 1000;
 }
 
-/* DevKit status LEDs are addressable RGB LEDs; they need an RMT driver (later). */
-void jsb_hal_led_set(bool on)
+/* Sleeps at least one tick so the idle task (and its watchdog) can run. */
+void jsb_hal_sleep_ms(uint32_t ms)
 {
-    (void)on;
+    TickType_t ticks = pdMS_TO_TICKS(ms);
+    vTaskDelay(ticks > 0 ? ticks : 1);
+}
+
+static bool gpio_valid(int pin)
+{
+    return pin >= 0 && pin < GPIO_NUM_MAX;
+}
+
+/* Outputs are configured input+output so jsb_hal_gpio_read() sees the driven level. */
+int jsb_hal_gpio_mode(int pin, jsb_gpio_mode mode)
+{
+    if (!gpio_valid(pin)) {
+        return -1;
+    }
+    gpio_config_t cfg = {
+        .pin_bit_mask = 1ULL << pin,
+        .mode = mode == JSB_GPIO_OUTPUT ? GPIO_MODE_INPUT_OUTPUT : GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    return gpio_config(&cfg) == ESP_OK ? 0 : -1;
+}
+
+int jsb_hal_gpio_write(int pin, bool high)
+{
+    if (!gpio_valid(pin)) {
+        return -1;
+    }
+    return gpio_set_level((gpio_num_t)pin, high ? 1 : 0) == ESP_OK ? 0 : -1;
+}
+
+int jsb_hal_gpio_read(int pin)
+{
+    if (!gpio_valid(pin)) {
+        return -1;
+    }
+    return gpio_get_level((gpio_num_t)pin) ? 1 : 0;
 }
 
 void app_main(void)

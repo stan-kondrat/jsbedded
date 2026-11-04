@@ -15,6 +15,7 @@ help:
 	@echo "JSBedded make targets (BOARD=$(BOARD) ENGINE=$(ENGINE))"
 	@echo ""
 	@echo "  firmware        build one image   -> $(BUILD_DIR)/<board>-<engine>/jsbedded-<board>-<engine>.<uf2|bin>"
+	@echo "                  SCRIPT=<file.js> builds it in as the boot script (image name gets -<script folder>)"
 	@echo "  firmware-all    build every board for ENGINE (default: none)"
 	@echo "  js              install and build the js/ workspace"
 	@echo "  codegen         generate C bindings from the API typings in js/"

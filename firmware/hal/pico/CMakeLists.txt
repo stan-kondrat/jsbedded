@@ -1,5 +1,5 @@
 # Firmware image on the Raspberry Pi Pico SDK. Configured by platform.mk:
-#   PICO_SDK_PATH, PICO_BOARD, JSB_BOARD, JSB_VERSION, JSB_ENGINE
+#   PICO_SDK_PATH, PICO_BOARD, JSB_BOARD, JSB_VERSION, JSB_ENGINE, JSB_BOARD_LED, JSB_SCRIPT
 cmake_minimum_required(VERSION 3.13)
 
 include(${PICO_SDK_PATH}/pico_sdk_init.cmake)
@@ -17,7 +17,9 @@ add_executable(jsbedded
 )
 jsb_apply_engine_options()
 target_include_directories(jsbedded PRIVATE ${JSB_CORE_INCLUDE_DIRS})
-target_compile_definitions(jsbedded PRIVATE ${JSB_CORE_DEFINITIONS})
+target_compile_definitions(jsbedded PRIVATE ${JSB_CORE_DEFINITIONS}
+    # Wait up to 2 s for a USB serial host at boot, so the first lines aren't lost.
+    PICO_STDIO_USB_CONNECT_WAIT_TIMEOUT_MS=2000)
 target_link_libraries(jsbedded pico_stdlib ${JSB_CORE_LINK_LIBRARIES})
 
 pico_set_program_name(jsbedded "JSBedded")

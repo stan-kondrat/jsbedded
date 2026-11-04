@@ -19,11 +19,12 @@ make firmware BOARD=pico ENGINE=mquickjs
 
 ## In the firmware
 
-- **Globals:** the upstream `mqjs` set, including `console.log`, `print`, `Math`,
-  `JSON`, `Date`, typed arrays and `RegExp`. `load`, `setTimeout` and
-  `clearTimeout` throw until the firmware has a file system and an event loop.
+- **Globals:** the upstream language set (`Math`, `JSON`, `Date`, typed arrays,
+  `RegExp`, …) plus the JSBedded host APIs: `console.log`, `setTimeout` /
+  `setInterval` / `clearTimeout` / `clearInterval`, `gpio`, `board`
+  ([API](../api/index.md)). The REPL's `print` and `load` are left out.
 - **Errors:** uncaught exceptions print `Uncaught <Name>: <message>` and the stack
-  (`at boot.js:1:7`).
+  (`at main.js:1:7`).
 - **Memory:** a static JS heap per board: 64 KB on RP2040, 128 KB on RP2350 and
   ESP32-S3, 96 KB on ESP32-C3. It holds every object and the JS stack.
 - **Build:** the stdlib ROM tables are generated at configure time by a tool that

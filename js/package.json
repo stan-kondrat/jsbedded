@@ -5,5 +5,11 @@
   "license": "MIT",
   "workspaces": [
     "packages/*"
-  ]
+  ],
+  "scripts": {
+    "examples": "tsc -p ../examples/blink"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3"
+  }
 }

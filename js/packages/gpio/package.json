@@ -1,0 +1,15 @@
+{
+  "name": "@jsbedded/gpio",
+  "version": "0.1.0",
+  "description": "Typings for the JSBedded gpio global (digital pins).",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stan-kondrat/jsbedded.git",
+    "directory": "js/packages/gpio"
+  },
+  "types": "index.d.ts",
+  "files": [
+    "index.d.ts"
+  ]
+}

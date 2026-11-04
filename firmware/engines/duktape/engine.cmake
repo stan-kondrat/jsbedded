@@ -81,6 +81,7 @@ endif()
 
 set(JSB_ENGINE_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/adapter_duktape.c
+    ${CMAKE_CURRENT_LIST_DIR}/../common/host_unsupported.c
     ${JSB_DUKTAPE_SRC}/duktape.c
 )
 set(JSB_ENGINE_INCLUDE_DIRS ${JSB_DUKTAPE_SRC})

@@ -11,35 +11,58 @@ make firmware BOARD=pico ENGINE=mquickjs
 
 - `engine.cmake` — compiles `mquickjs.c`, `dtoa.c`, `libm.c`, `cutils.c` and the adapter,
   and generates the stdlib at configure time (below).
-- `adapter_mquickjs.c` — implements [`engine.h`](../include/jsb/engine.h) and the host
-  functions the stdlib refers to.
+- `adapter_mquickjs.c` — implements [`engine.h`](../include/jsb/engine.h), including the
+  host-function contract, and the C functions the stdlib refers to.
+- `jsb_stdlib.c` — the JSBedded standard library: input of the stdlib generator (below).
 
 ## Generated stdlib
 
 MQuickJS keeps its standard library in ROM tables produced by a host tool. At
-configure time `engine.cmake` compiles upstream `mqjs_stdlib.c` + `mquickjs_build.c`
+configure time `engine.cmake` compiles `jsb_stdlib.c` + upstream `mquickjs_build.c`
 with the host compiler (`cc`, `gcc` or `clang` on `PATH`; override with `HOST_CC`
 or `-DJSB_HOST_CC=`) and runs it with `-m32` (target word size) to write
-`mquickjs_atom.h` and `mqjs_stdlib.h` into `<build>/mquickjs/`. Outputs are only
+`mquickjs_atom.h` and `jsb_stdlib.h` into `<build>/mquickjs/`. Outputs are only
 replaced when they change, and editing the generator sources reruns the configure.
 This works for both pico-sdk and ESP-IDF, which cross-compile; the host needs a C
 compiler with `-lm` (Linux or macOS).
 
+`jsb_stdlib.c` `#include`s upstream `mqjs_stdlib.c` (its `main` renamed) to reuse
+every class and object definition unchanged, and lists its own global object: the
+upstream one minus the REPL host functions (`console`, `print`, `load`,
+`setTimeout`, `clearTimeout`). When upstream adds a global, add it there too.
+
+## Host functions
+
+MQuickJS can't register C functions at runtime: every C function is an index into
+the generated `js_c_function_table`. `jsb_stdlib.c` therefore declares one extra C
+function, `jsb_host` (a `generic_params` closure, `JS_CFUNCTION_USER + 0`).
+`jsb_engine_define()` creates one closure of it per host function with
+`JS_NewCFunctionParams()`; its params value is the index of the C callback in a
+static table (32 host functions per runtime). Objects such as `gpio` are plain RAM
+objects set on the global object. Retained callbacks (`jsb_arg_function`) are a pool
+of 32 `JSGCRef`s, and host return values are held in a pushed `JSGCRef`, since the
+compacting GC moves objects. Host functions show up as `jsb_host` in stack traces.
+
 ## Globals
 
-Those of upstream `mqjs_stdlib.c` (the `mqjs` REPL set, close to ES5). Host functions:
+The upstream language set (close to ES5: `Object` … `Float64Array`, `Math`, `JSON`,
+`RegExp`, `Date`), plus:
 
-| Global | Behaviour |
-|---|---|
-| `console.log(...)`, `print(...)` | arguments separated by spaces, then `\r\n`, via `jsb_hal_console_write()`. Strings print as-is; other values as MQuickJS prints them (`{ a: 1 }`, `[ 1, 2 ]`). |
-| `gc()` | runs the garbage collector |
-| `Date`, `Date.now()`, `performance.now()` | milliseconds from `gettimeofday()`: time since boot until something sets the clock |
-| `load()`, `setTimeout()`, `clearTimeout()` | throw `TypeError` (no file system or event loop yet) |
+| Global | From | Behaviour |
+|---|---|---|
+| `console.log(...)` | `api/console` | arguments separated by spaces, then `\r\n`. Strings print as-is; other values as MQuickJS prints them (`{ a: 1 }`, `[ 1, 2 ]`). |
+| `setTimeout`, `setInterval`, `clearTimeout`, `clearInterval` | `core/src/timers.c` | event-loop timers |
+| `gpio` | `api/gpio` | `mode`, `write`, `read` |
+| `board` | `core/src/board.c` | `name`, `LED` |
+| `gc()` | adapter | runs the garbage collector |
+| `Date`, `Date.now()`, `performance.now()` | adapter | milliseconds from `gettimeofday()`: time since boot until something sets the clock |
+
+`print` and `load` of the `mqjs` REPL don't exist. Specs: `js/packages/<module>/index.d.ts`.
 
 `Math.random()` is seeded from the clock at `jsb_engine_create()`.
 
 Uncaught exceptions print `Uncaught <Name>: <message>` followed by the stack
-(`at boot.js:1:7`), with `\r\n` line ends, and `jsb_engine_eval()` returns -1.
+(`at main.js:1:7`), with `\r\n` line ends, and `jsb_engine_eval()` returns -1.
 
 `JS_Eval` assumes `source[len] == '\0'`; callers must pass a NUL-terminated buffer.
 

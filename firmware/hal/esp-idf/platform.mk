@@ -2,7 +2,8 @@
 # flashed at 0x0. Needs the ESP-IDF environment in the calling shell:
 #   third_party/esp-idf/install.sh esp32s3,esp32c3   (once)
 #   . third_party/esp-idf/export.sh
-# Inputs from firmware/Makefile: BOARD, ENGINE, IDF_TARGET, BOARD_BUILD, IMAGE, JSB_VERSION.
+# Inputs from firmware/Makefile: BOARD, ENGINE, IDF_TARGET, BOARD_LED, SCRIPT_ABS, BOARD_BUILD,
+# IMAGE, JSB_VERSION.
 #
 # sdkconfig defaults: hal/esp-idf/sdkconfig.defaults, then
 # engines/$(ENGINE)/sdkconfig.defaults if the engine has one (later files win).
@@ -21,4 +22,5 @@ platform-build:
 		-DIDF_TARGET=$(IDF_TARGET) -DSDKCONFIG=$(IDF_BUILD)/sdkconfig \
 		"-DSDKCONFIG_DEFAULTS=$(subst $(IDF_SPACE),;,$(IDF_DEFAULTS))" \
 		-DJSB_BOARD=$(BOARD) -DJSB_ENGINE=$(ENGINE) -DJSB_VERSION=$(JSB_VERSION) \
+		-DJSB_BOARD_LED=$(BOARD_LED) -DJSB_SCRIPT=$(SCRIPT_ABS) \
 		build merge-bin -o $(IMAGE)

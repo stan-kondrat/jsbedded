@@ -3,7 +3,9 @@
 #   push to main -> build + refresh the rolling "latest" pre-release
 #   tag v*       -> build + release for that tag
 # The matrix comes from the folders: firmware/boards/*/board.mk × firmware/engines/*/engine.cmake,
-# minus each engine.json "unsupported_boards" (scripts/matrix/ci-matrix.sh).
+# minus each engine.json "unsupported_boards", plus example images listed in
+# examples/*/example.json (scripts/matrix/ci-matrix.sh).
+# The js job type-checks the examples and checks their committed ES5 output is current.
 name: firmware
 
 on:
@@ -16,6 +18,24 @@ permissions:
   contents: read
 
 jobs:
+  js:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Type-check examples, compile to ES5
+        working-directory: js
+        run: |
+          npm ci
+          npm run examples
+
+      - name: Committed example JS is up to date
+        run: |
+          git diff --exit-code -- examples/ || {
+            echo "::error title=examples::examples/*/main.js is stale: run (cd js && npm run examples) and commit"
+            exit 1
+          }
+
   matrix:
     runs-on: ubuntu-24.04
     outputs:
@@ -29,7 +49,7 @@ jobs:
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   build:
-    name: build (${{ matrix.board }}, ${{ matrix.engine }})
+    name: build (${{ matrix.variant }})
     needs: matrix
     runs-on: ubuntu-24.04
     strategy:
@@ -129,8 +149,9 @@ jobs:
         uses: actions/cache@v6.1.0
         with:
           path: .ccache
-          key: ccache-${{ matrix.board }}-${{ matrix.engine }}-${{ hashFiles('firmware/**') }}-${{ github.sha }}
+          key: ccache-${{ matrix.variant }}-${{ hashFiles('firmware/**') }}-${{ github.sha }}
           restore-keys: |
+            ccache-${{ matrix.variant }}-${{ hashFiles('firmware/**') }}-
             ccache-${{ matrix.board }}-${{ matrix.engine }}-${{ hashFiles('firmware/**') }}-
             ccache-${{ matrix.board }}-${{ matrix.engine }}-
             ccache-${{ matrix.board }}-
@@ -141,7 +162,9 @@ jobs:
           if [ "${{ matrix.platform }}" = esp-idf ]; then
             . third_party/esp-idf/export.sh > /dev/null
           fi
-          make firmware BOARD=${{ matrix.board }} ENGINE=${{ matrix.engine }} 2>&1 | tee "$RUNNER_TEMP/build.log"
+          script="${{ matrix.script }}"
+          make firmware BOARD=${{ matrix.board }} ENGINE=${{ matrix.engine }} ${script:+SCRIPT=$script} 2>&1 |
+            tee "$RUNNER_TEMP/build.log"
           ccache --show-stats || true
 
       # Job logs need a GitHub login; annotations are public (check-runs API),
@@ -154,19 +177,19 @@ jobs:
           grep -E 'error|Error|undefined reference|FATAL|No such file|not found' "$log" | head -10 |
             sed -e 's/%/%25/g' -e 's/\r/%0D/g' |
             while IFS= read -r line; do
-              echo "::error title=build ${{ matrix.board }} ${{ matrix.engine }}::$line"
+              echo "::error title=build ${{ matrix.variant }}::$line"
             done
           tail -n 80 "$log"
 
       - uses: actions/upload-artifact@v7.0.2
         with:
-          name: ${{ matrix.board }}-${{ matrix.engine }}
-          path: build/${{ matrix.board }}-${{ matrix.engine }}/jsbedded-${{ matrix.board }}-${{ matrix.engine }}.*
+          name: ${{ matrix.variant }}
+          path: build/${{ matrix.variant }}/jsbedded-${{ matrix.variant }}.*
           if-no-files-found: error
 
   release:
     if: github.event_name == 'push'
-    needs: build
+    needs: [js, build]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -180,7 +203,7 @@ jobs:
 
       - uses: actions/download-artifact@v8.0.2
         with:
-          path: build # one folder per board-engine, as in a local build
+          path: build # one folder per variant, as in a local build
 
       - name: Collect images and checksums
         run: make dist

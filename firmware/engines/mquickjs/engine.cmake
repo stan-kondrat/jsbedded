@@ -1,6 +1,7 @@
 # MQuickJS: adapter + engine sources from third_party/mquickjs (kept pristine).
-# The standard library lives in ROM tables (mqjs_stdlib.h, mquickjs_atom.h) that
-# a host-built tool generates at configure time into ${CMAKE_BINARY_DIR}/mquickjs.
+# The standard library lives in ROM tables (jsb_stdlib.h, mquickjs_atom.h) that
+# a host tool built from jsb_stdlib.c (which reuses upstream mqjs_stdlib.c)
+# generates at configure time into ${CMAKE_BINARY_DIR}/mquickjs.
 #
 # Cache variables:
 #   JSB_HOST_CC                 host C compiler for the generator (default: cc, gcc or clang on PATH,
@@ -66,8 +67,9 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
         set(_mqjs_word_flag -m32)
     endif()
 
-    set(_mqjs_tool ${JSB_MQUICKJS_GEN}/mqjs_stdlib)
+    set(_mqjs_tool ${JSB_MQUICKJS_GEN}/jsb_stdlib)
     set(_mqjs_tool_inputs
+        ${CMAKE_CURRENT_LIST_DIR}/jsb_stdlib.c
         ${JSB_MQUICKJS_SRC}/mqjs_stdlib.c
         ${JSB_MQUICKJS_SRC}/mquickjs_build.c
         ${JSB_MQUICKJS_SRC}/mquickjs_build.h
@@ -84,7 +86,8 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     if(_mqjs_tool_stale)
         execute_process(
             COMMAND ${JSB_HOST_CC} -O2 -D_GNU_SOURCE -fno-math-errno -fno-trapping-math
-                    -o ${_mqjs_tool} ${JSB_MQUICKJS_SRC}/mqjs_stdlib.c ${JSB_MQUICKJS_SRC}/mquickjs_build.c -lm
+                    -I${JSB_MQUICKJS_SRC}
+                    -o ${_mqjs_tool} ${CMAKE_CURRENT_LIST_DIR}/jsb_stdlib.c ${JSB_MQUICKJS_SRC}/mquickjs_build.c -lm
             RESULT_VARIABLE _mqjs_rc
             ERROR_VARIABLE _mqjs_err)
         if(NOT _mqjs_rc EQUAL 0)
@@ -93,7 +96,7 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     endif()
 
     # Write to .tmp and copy only on change, so a reconfigure doesn't rebuild mquickjs.c.
-    foreach(_mqjs_out mquickjs_atom.h mqjs_stdlib.h)
+    foreach(_mqjs_out mquickjs_atom.h jsb_stdlib.h)
         if(_mqjs_out STREQUAL mquickjs_atom.h)
             set(_mqjs_args ${_mqjs_word_flag} -a)
         else()

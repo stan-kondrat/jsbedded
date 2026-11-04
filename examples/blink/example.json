@@ -1,0 +1,5 @@
+{
+  "script": "main.js",
+  "boards": ["pico", "pico2"],
+  "engines": ["mquickjs"]
+}

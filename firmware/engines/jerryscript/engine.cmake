@@ -64,6 +64,7 @@ list(SORT JSB_JERRYSCRIPT_LIB_SOURCES)
 
 set(JSB_ENGINE_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/adapter_jerryscript.c
+    ${CMAKE_CURRENT_LIST_DIR}/../common/host_unsupported.c
     ${JSB_JERRYSCRIPT_LIB_SOURCES}
 )
 # Public headers only (jerryscript*.h). jerry-core's private headers have

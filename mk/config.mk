@@ -2,6 +2,7 @@
 
 BOARD     ?= pico2
 ENGINE    ?= none
+SCRIPT    ?=
 BUILD_DIR ?= build
 
 FIRMWARE_DIR := firmware

@@ -66,6 +66,7 @@ endif()
 
 set(JSB_ENGINE_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/adapter_quickjs.c
+    ${CMAKE_CURRENT_LIST_DIR}/../common/host_unsupported.c
     ${JSB_QUICKJS_SRC}/quickjs.c
     ${JSB_QUICKJS_SRC}/dtoa.c
     ${JSB_QUICKJS_SRC}/libregexp.c

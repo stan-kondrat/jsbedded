@@ -1,0 +1,17 @@
+{
+  // main.ts -> main.js (ES5, as MQuickJS runs it). From js/: npm run examples
+  "compilerOptions": {
+    "target": "ES5",
+    "lib": ["ES5"],
+    "strict": true,
+    "noEmitOnError": true,
+    "newLine": "lf",
+    "removeComments": false,
+    // API typings straight from the workspace; in your own project:
+    // npm i -D @jsbedded/console @jsbedded/timers @jsbedded/gpio @jsbedded/board
+    // and "types": ["@jsbedded/console", "@jsbedded/timers", "@jsbedded/gpio", "@jsbedded/board"]
+    "typeRoots": ["../../js/packages"],
+    "types": ["console", "timers", "gpio", "board"]
+  },
+  "files": ["main.ts"]
+}

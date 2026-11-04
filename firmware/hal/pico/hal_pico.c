@@ -9,10 +9,6 @@
 void jsb_hal_init(void)
 {
     stdio_init_all();
-#ifdef PICO_DEFAULT_LED_PIN
-    gpio_init(PICO_DEFAULT_LED_PIN);
-    gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
-#endif
 }
 
 void jsb_hal_console_write(const char *s, size_t len)
@@ -21,19 +17,47 @@ void jsb_hal_console_write(const char *s, size_t len)
     fflush(stdout);
 }
 
+uint64_t jsb_hal_millis(void)
+{
+    return time_us_64() / 1000;
+}
+
 void jsb_hal_sleep_ms(uint32_t ms)
 {
     sleep_ms(ms);
 }
 
-/* Pico W boards wire the LED to the CYW43 chip; that needs the cyw43 driver (later). */
-void jsb_hal_led_set(bool on)
+static bool gpio_valid(int pin)
 {
-#ifdef PICO_DEFAULT_LED_PIN
-    gpio_put(PICO_DEFAULT_LED_PIN, on);
-#else
-    (void)on;
-#endif
+    return pin >= 0 && (unsigned)pin < NUM_BANK0_GPIOS;
+}
+
+/* On the W boards some pins (GP23-25, GP29) belong to the CYW43 chip; they are not blocked. */
+int jsb_hal_gpio_mode(int pin, jsb_gpio_mode mode)
+{
+    if (!gpio_valid(pin)) {
+        return -1;
+    }
+    gpio_init((uint)pin);
+    gpio_set_dir((uint)pin, mode == JSB_GPIO_OUTPUT ? GPIO_OUT : GPIO_IN);
+    return 0;
+}
+
+int jsb_hal_gpio_write(int pin, bool high)
+{
+    if (!gpio_valid(pin)) {
+        return -1;
+    }
+    gpio_put((uint)pin, high);
+    return 0;
+}
+
+int jsb_hal_gpio_read(int pin)
+{
+    if (!gpio_valid(pin)) {
+        return -1;
+    }
+    return gpio_get((uint)pin) ? 1 : 0;
 }
 
 int main(void)
