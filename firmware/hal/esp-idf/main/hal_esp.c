@@ -68,6 +68,12 @@ int jsb_hal_gpio_read(int pin)
     return gpio_get_level((gpio_num_t)pin) ? 1 : 0;
 }
 
+/* No dev mode or script drive on ESP32 yet: the BOOT button is not read. */
+bool jsb_hal_devmode(void)
+{
+    return false;
+}
+
 void app_main(void)
 {
     jsb_main();

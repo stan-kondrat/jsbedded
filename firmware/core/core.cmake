@@ -3,6 +3,8 @@
 # Inputs (cache variables): JSB_BOARD, JSB_VERSION, JSB_ENGINE,
 #   JSB_SCRIPT     boot script built into the image (default: core/boot.js)
 #   JSB_BOARD_LED  GPIO of the on-board LED, empty if it is not a plain GPIO
+#   JSB_STORAGE    ON if the platform implements the script drive (jsb_hal_disk_*,
+#                  jsb_hal_drive_attach): adds storage/ and FatFs, defines JSB_STORAGE=1
 #
 # engines/<engine>/engine.cmake sets:
 #   JSB_ENGINE_SOURCES          adapter + engine sources (required)
@@ -76,12 +78,33 @@ set(JSB_CORE_INCLUDE_DIRS
     ${JSB_ENGINE_INCLUDE_DIRS}
 )
 
+# Script drive: FatFs (third_party/fatfs, configured by storage/ffconf.h) + storage/.
+if(JSB_STORAGE)
+    get_filename_component(JSB_FATFS_DIR ${JSB_FIRMWARE_DIR}/../third_party/fatfs ABSOLUTE)
+    list(APPEND JSB_CORE_SOURCES
+        ${JSB_FIRMWARE_DIR}/storage/drive.c
+        ${JSB_FIRMWARE_DIR}/storage/diskio.c
+        ${JSB_FATFS_DIR}/ff.c
+    )
+    list(APPEND JSB_CORE_INCLUDE_DIRS
+        ${JSB_FIRMWARE_DIR}/storage/include
+        ${JSB_FIRMWARE_DIR}/storage
+        ${JSB_FATFS_DIR}
+    )
+    if(NOT CMAKE_BUILD_EARLY_EXPANSION)
+        set_source_files_properties(${JSB_FATFS_DIR}/ff.c PROPERTIES COMPILE_OPTIONS "-Os;-w")
+    endif()
+endif()
+
 set(JSB_CORE_DEFINITIONS
     JSB_BOARD="${JSB_BOARD}"
     JSB_VERSION="${JSB_VERSION}"
     JSB_ENGINE="${JSB_ENGINE}"
     ${JSB_ENGINE_DEFINITIONS}
 )
+if(JSB_STORAGE)
+    list(APPEND JSB_CORE_DEFINITIONS JSB_STORAGE=1)
+endif()
 if(NOT "${JSB_BOARD_LED}" STREQUAL "")
     list(APPEND JSB_CORE_DEFINITIONS JSB_BOARD_LED=${JSB_BOARD_LED})
 endif()

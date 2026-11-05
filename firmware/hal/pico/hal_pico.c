@@ -1,14 +1,25 @@
-/* HAL on the Pico SDK (RP2040, RP2350). Console: USB serial and UART0. */
+/*
+ * HAL on the Pico SDK (RP2040, RP2350). Console: USB serial and UART0.
+ * Also here: the script drive (flash_disk.c, usb_drive.c) and dev mode (devmode.c).
+ */
 #include <stdio.h>
 
 #include "pico/stdlib.h"
 
 #include "jsb/core.h"
 #include "jsb/hal.h"
+#include "pico_hal.h"
 
 void jsb_hal_init(void)
 {
+    jsb_pico_devmode_init();
     stdio_init_all();
+
+    uint32_t firmware_kb, drive_kb;
+    if (!jsb_pico_drive_check(&firmware_kb, &drive_kb) && drive_kb > 0) {
+        printf("JSBedded: no script drive: the firmware (%lu KB) reaches into the last %lu KB of flash "
+               "set aside for it\r\n", (unsigned long)firmware_kb, (unsigned long)drive_kb);
+    }
 }
 
 void jsb_hal_console_write(const char *s, size_t len)

@@ -38,4 +38,38 @@ int jsb_hal_gpio_write(int pin, bool high);
 /* Read a pin's level: 1 high, 0 low, -1 for an invalid pin. */
 int jsb_hal_gpio_read(int pin);
 
+/* --- dev mode --- */
+
+/*
+ * True if this boot is dev mode: the user asked for it with the board's button
+ * (on the Pico: hold BOOTSEL for 2 s while the firmware runs). In dev mode the
+ * script drive is shown to the PC and the script is not started. Platforms
+ * without a button return false.
+ */
+bool jsb_hal_devmode(void);
+
+/* --- script drive (only on platforms that build storage/, JSB_STORAGE=1) --- */
+
+/*
+ * Flash set aside for the FAT volume in storage/, as 512-byte sectors. Until
+ * jsb_hal_drive_attach() only the firmware uses it; after that only the PC does.
+ */
+#define JSB_HAL_DISK_SECTOR_SIZE 512
+
+/* Number of sectors, or 0 if this image has no drive. */
+uint32_t jsb_hal_disk_sectors(void);
+
+/* Read or write count sectors starting at sector. Return 0, or -1 if out of range. */
+int jsb_hal_disk_read(uint32_t sector, void *buf, uint32_t count);
+int jsb_hal_disk_write(uint32_t sector, const void *buf, uint32_t count);
+
+/* Write cached sectors to flash. Returns 0 or -1. */
+int jsb_hal_disk_sync(void);
+
+/*
+ * Show the drive to the PC (USB mass storage). The firmware must not use the
+ * jsb_hal_disk_* functions afterwards: the PC owns the volume until the next reset.
+ */
+void jsb_hal_drive_attach(void);
+
 #endif

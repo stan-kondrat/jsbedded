@@ -10,7 +10,11 @@ Toggle the on-board LED every 500 ms with `setInterval` and log each toggle.
 
 ## Run it
 
-Download `jsbedded-pico-mquickjs-blink.uf2` (or `jsbedded-pico2-mquickjs-blink.uf2`)
+With the JSBedded firmware on a Pico or Pico 2 (`jsbedded-pico-mquickjs.uf2`), copy
+`main.js` to the `JSBEDDED` USB drive, eject it and reset the board (unplug and plug
+in). See [your first script](../../docs/guide/first-script.md).
+
+Or download `jsbedded-pico-mquickjs-blink.uf2` (or `jsbedded-pico2-mquickjs-blink.uf2`)
 from the [`latest` release](https://github.com/stan-kondrat/jsbedded/releases/tag/latest),
 or build it:
 
@@ -23,7 +27,7 @@ Hold BOOTSEL, plug in the board, copy the `.uf2` to the `RPI-RP2` (Pico) or `RP2
 USB serial port (115200 is fine; USB ignores it):
 
 ```
-JSBedded <version> | board=pico | engine=mquickjs | script=main.js
+JSBedded <version> | board=pico | engine=mquickjs | script=main.js (drive JSBEDDED)
 LED on
 LED off
 LED on

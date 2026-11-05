@@ -5,6 +5,7 @@
   "family": "rp2",
   "mcu": "rp2350",
   "flash_kb": 4096,
+  "drive_kb": 2048,
   "sram_kb": 520,
   "led": 25,
   "peripherals": ["gpio", "uart:2", "i2c:2", "spi:2", "pwm", "adc", "pio:3"]

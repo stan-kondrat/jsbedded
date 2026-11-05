@@ -1,6 +1,6 @@
 # pico-sdk platform: configures and builds hal/pico with the SDK's CMake.
-# Inputs from firmware/Makefile: BOARD, ENGINE, PICO_BOARD, BOARD_LED, SCRIPT_ABS, BOARD_BUILD,
-# IMAGE, JSB_VERSION.
+# Inputs from firmware/Makefile: BOARD, ENGINE, PICO_BOARD, BOARD_LED, DRIVE_KB, SCRIPT_ABS,
+# BOARD_BUILD, IMAGE, JSB_VERSION.
 # picotool is built by the SDK on first use; set PICOTOOL_FETCH_FROM_GIT_PATH
 # in the environment to keep it outside the build directory.
 
@@ -15,6 +15,7 @@ platform-build:
 	cmake -S hal/pico -B $(PICO_CMAKE) -G Ninja -DCMAKE_BUILD_TYPE=Release \
 		-DPICO_SDK_PATH=$(PICO_SDK_PATH) -DPICO_BOARD=$(PICO_BOARD) \
 		-DJSB_BOARD=$(BOARD) -DJSB_ENGINE=$(ENGINE) -DJSB_VERSION=$(JSB_VERSION) \
-		-DJSB_BOARD_LED=$(BOARD_LED) -DJSB_SCRIPT=$(SCRIPT_ABS) $(PICO_CCACHE)
+		-DJSB_BOARD_LED=$(BOARD_LED) -DJSB_DRIVE_KB=$(DRIVE_KB) -DJSB_SCRIPT=$(SCRIPT_ABS) \
+		$(PICO_CCACHE)
 	cmake --build $(PICO_CMAKE)
 	cp $(PICO_CMAKE)/jsbedded.uf2 $(IMAGE)

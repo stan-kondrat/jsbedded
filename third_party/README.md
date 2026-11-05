@@ -14,6 +14,13 @@ Every submodule has `ignore = dirty`, so build output inside it does not show in
 | `pico-sdk/` | https://github.com/raspberrypi/pico-sdk | `2.3.1` | `firmware/hal/pico` |
 | `esp-idf/` | https://github.com/espressif/esp-idf | `v6.0.3` (shallow) | `firmware/hal/esp-idf` |
 
+Vendored (not submodules):
+
+| Folder | Upstream | Version | Used by |
+|---|---|---|---|
+| [`duktape-dist/`](#duktape-dist) | https://duktape.org | 2.7.0 release tarball | `firmware/engines/duktape` |
+| [`fatfs/`](#fatfs) | http://elm-chan.org/fsw/ff/ | R0.16 | `firmware/storage` |
+
 Pins are exact releases where upstream publishes them. QuickJS fixes made after
 its last release (for example the Intl use-after-free fix in `4490e58`) are
 candidates for `patches/quickjs/` once the engine is built.
@@ -34,6 +41,16 @@ engine reduces memory through `duk_config.h` options that don't change the
 generated built-in data, so no regeneration is needed. The `duktape/` submodule
 pins the same release, for reading the sources, the config option docs
 (`config/config-options/`) and `extras/`. CI does not check it out.
+
+### fatfs
+
+FatFs R0.16 by ChaN (BSD-style 1-clause license, `fatfs/LICENSE.txt`): `ff.c`,
+`ff.h`, `diskio.h` and the release notes from `source/` of `ff16.zip`
+(SHA-256 `99f7dc1f7e095356e4a9e3dbe29959090d8b948afe2bbc5441e52fdf4b85449e`),
+unmodified, CRLF line endings as released. FatFs has no git repository, so it is
+vendored. Its `ffconf.h` is left out on purpose: `ff.h` then finds
+`firmware/storage/ffconf.h` on the include path. `diskio.c` and `ffunicode.c`
+(long file names only) aren't used.
 
 ```bash
 # Pico boards: the SDK and only the nested library the firmware uses

@@ -40,6 +40,7 @@ $(error SCRIPT=$(SCRIPT) not found)
 endif
 endif
 BOARD_LED :=
+DRIVE_KB  := 0
 include boards/$(BOARD)/board.mk
 include hal/$(PLATFORM)/platform.mk
 endif
