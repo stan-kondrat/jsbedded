@@ -1,7 +1,7 @@
 # Support matrix
 
-Generated from `docs/data/matrix.json` (`make matrix`). Nothing is hand-edited.
+What each JavaScript engine supports, as stated by the engine's own
+documentation. These are not test results yet. **✓** supported, **✗** not
+supported, **–** not stated. Hover a language level for details.
 
-<!-- <SupportMatrix /> renders here once the site is set up -->
-
-No results yet.
+<EngineFacts />

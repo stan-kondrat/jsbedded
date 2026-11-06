@@ -7,8 +7,8 @@ title: JSBedded
 JavaScript and TypeScript on microcontrollers. Board-neutral, engine-neutral,
 local-first.
 
-> Planning stage — nothing is shipped yet. See the [support matrix](./matrix.md)
-> for what is measured, and the [architecture](./architecture.md) for the plan.
+> Early development: firmware images are published as pre-releases. See the
+> [support matrix](./matrix.md) for what each engine and board supports.
 
 - [Getting started](./guide/getting-started.md)
 - [API reference](./api/index.md)

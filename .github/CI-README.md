@@ -25,6 +25,6 @@ image variant. Toolchain packages come from plain `apt-get`.
 
 ## Planned
 
-- **test** — every PR: firmware unit tests, host language tests, simulator conformance
+- **test** — every PR: firmware unit tests (host); conformance runs on hardware, outside PR CI
 - **docs** — build the site; fail if generated reference docs or data are out of date
 - size-check every engine × board combination not marked `unsupported`

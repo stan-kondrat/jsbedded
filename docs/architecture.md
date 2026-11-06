@@ -1,14 +1,6 @@
 # Architecture
 
-```
-developer tools        js/        CLI, compiler, typings, transport
-        │  device protocol (docs/protocol)
-hardware APIs          firmware/api       console, timers, gpio, uart, i2c, spi, net*, fs*
-engine adapter         firmware/engines   ant · mquickjs · quickjs · …
-HAL                    firmware/hal       pico-sdk · esp-idf · …
-boards                 firmware/boards    pin maps, memory, peripherals
-```
-\* capability-gated, later.
+<ArchitectureDiagram />
 
 ## Rules
 
@@ -24,15 +16,26 @@ Facts are split so most are proven once, not per combination:
 
 | Question | Depends on | Proven by |
 |---|---|---|
-| Language features | engine | host-run language tests |
+| Language features | engine | language tests run on a board |
 | Peripherals | board / MCU family | board manifest + peripheral tests |
 | Fit, boot, performance | engine × board | build size check, boot smoke test, bench |
 
 Each engine × board cell climbs: `unsupported → declared → builds → fits →
 boots → passes n/m → verified`, and turns `stale` after ~90 days without a result.
+All results come from real boards.
 
-## Open questions
+## Scripts
 
-Script storage and loader design, module format, TS compilation and deployment
-details, HAL boundaries, simulator fidelity, recovery UX, signing and secure
-device management.
+Scripts live on the board's `JSBEDDED` USB drive. At boot the firmware runs the
+first of `main.js`, `index.js`, `main.mjs`, `index.mjs`. A script is one file
+today; `import` / `export` is planned for engines that support ES modules.
+
+TypeScript is compiled with your own `tsc` against the `@jsbedded` typings, for
+the engine's language level. Engines that accept TypeScript (Ant) will run it
+directly. If a script stops the board from working, use
+[dev mode](./guide/recovery.md).
+
+## Security
+
+JSBedded is made for fast prototyping. Anyone with USB access to a board can
+change its script; there is no signing or access control.

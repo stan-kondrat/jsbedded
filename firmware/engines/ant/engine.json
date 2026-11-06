@@ -6,5 +6,6 @@
   "language": null,
   "min_flash_kb": null,
   "min_ram_kb": null,
+  "license": "MIT",
   "features": {}
 }

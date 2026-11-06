@@ -4,7 +4,19 @@
   "submodules": ["third_party/mjs"],
   "unsupported_boards": [],
   "language": "strict subset of ES6 (let, JSON; no closures, exceptions, new, var, prototypes, classes, arrow functions, promises, template strings or ==; no String, Number, Date or RegExp)",
+  "language_level": "ES6 subset",
   "min_flash_kb": null,
   "min_ram_kb": null,
-  "features": {}
+  "license": "GPL-2.0-only OR commercial",
+  "features": {
+    "let": true,
+    "closures": false,
+    "exceptions": false,
+    "classes": false,
+    "arrow_functions": false,
+    "promises": false,
+    "json": true,
+    "stdlib_objects": false,
+    "host_functions": false
+  }
 }

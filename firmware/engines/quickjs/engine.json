@@ -4,7 +4,20 @@
   "submodules": ["third_party/quickjs"],
   "unsupported_boards": ["pico", "pico_w", "esp32c3_devkitm"],
   "language": "ES2025 (almost complete; no Atomics, no Intl)",
+  "language_level": "ES2025",
   "min_flash_kb": null,
   "min_ram_kb": null,
-  "features": {}
+  "license": "MIT",
+  "features": {
+    "let": true,
+    "closures": true,
+    "exceptions": true,
+    "classes": true,
+    "arrow_functions": true,
+    "promises": true,
+    "json": true,
+    "stdlib_objects": true,
+    "typed_arrays": true,
+    "host_functions": false
+  }
 }

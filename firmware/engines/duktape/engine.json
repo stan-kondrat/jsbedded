@@ -4,7 +4,17 @@
   "submodules": [],
   "unsupported_boards": [],
   "language": "ES5.1 (plus parts of ES2015+: typed arrays, Proxy, Reflect, Symbol, ** operator; no arrow functions, classes or Promise)",
+  "language_level": "ES5.1",
   "min_flash_kb": null,
   "min_ram_kb": null,
-  "features": {}
+  "license": "MIT",
+  "features": {
+    "classes": false,
+    "arrow_functions": false,
+    "promises": false,
+    "json": true,
+    "stdlib_objects": true,
+    "typed_arrays": true,
+    "host_functions": false
+  }
 }

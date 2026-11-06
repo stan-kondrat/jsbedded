@@ -1,7 +1,7 @@
 # Engines
 
 One page per engine. Facts come from `firmware/engines/<engine>/engine.json`;
-language feature results come from host-run conformance tests.
+language feature results come from conformance tests run on boards.
 
 | Engine | Upstream |
 |---|---|

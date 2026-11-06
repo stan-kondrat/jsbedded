@@ -22,7 +22,7 @@ help:
 	@echo "  docs            docs dev server"
 	@echo "  docs-gen        generate reference docs and matrix data"
 	@echo "  docs-build      static site -> $(BUILD_DIR)/site/"
-	@echo "  test            firmware unit + conformance (simulator)"
+	@echo "  test            firmware unit tests + conformance (hardware)"
 	@echo "  bench           size / startup / performance measurements"
 	@echo "  matrix          merge manifests + results -> docs/data/matrix.json"
 	@echo "  dist            collect built images + SHA256SUMS -> $(BUILD_DIR)/dist/"

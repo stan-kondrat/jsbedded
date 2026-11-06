@@ -4,7 +4,14 @@
   "submodules": ["third_party/mquickjs"],
   "unsupported_boards": [],
   "language": "ES5 subset (stricter mode)",
+  "language_level": "ES5 subset",
   "min_flash_kb": null,
   "min_ram_kb": null,
-  "features": {}
+  "license": "MIT",
+  "features": {
+    "json": true,
+    "stdlib_objects": true,
+    "typed_arrays": true,
+    "host_functions": true
+  }
 }

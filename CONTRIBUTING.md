@@ -1,7 +1,7 @@
 # Contributing
 
-JSBedded is in the planning stage. Issues and design discussion are the most
-useful contributions right now.
+JSBedded is in early development. Issues, board and engine reports, and design
+discussion are the most useful contributions right now.
 
 ## Ground rules
 
