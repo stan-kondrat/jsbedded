@@ -8,11 +8,28 @@
 # The js job type-checks the examples and checks their committed ES5 output is current.
 name: firmware
 
+# Docs/landing-only changes skip this workflow (they are deployed by pages.yml).
+# paths-ignore applies to branch pushes and PRs; GitHub does not evaluate path filters
+# for tag pushes, so v* releases still build.
 on:
   pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - 'site/**'
+      - 'mk/docs.mk'
+      - 'scripts/docs-serve.mjs'
+      - '.github/workflows/pages.yml'
+      - '**/*.md'
   push:
     branches: [main]
     tags: ['v*']
+    paths-ignore:
+      - 'docs/**'
+      - 'site/**'
+      - 'mk/docs.mk'
+      - 'scripts/docs-serve.mjs'
+      - '.github/workflows/pages.yml'
+      - '**/*.md'
 
 permissions:
   contents: read
