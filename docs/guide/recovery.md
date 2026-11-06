@@ -19,6 +19,11 @@ ROM never runs JSBedded; flashing a UF2 doesn't erase the `JSBEDDED` drive.
 
 Dev mode is remembered across the restart only; a power cycle starts normally.
 
-Planned: settings for the drive and restarts in `config.ini`; boot loops
+The drive holds `config.ini` (commented defaults, created when missing in dev mode
+or on first format) and a short `README.txt` with a link to these docs. For now the
+firmware only parses `config.ini` and warns about bad lines; the settings take
+effect in later releases.
+
+Planned: boot loops
 detected and falling back to dev mode automatically; the BOOT button on ESP32
 boards.

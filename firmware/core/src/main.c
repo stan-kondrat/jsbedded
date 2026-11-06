@@ -73,6 +73,12 @@ static script_choice pick_script(bool devmode)
 #ifdef JSB_STORAGE
     static jsb_storage_script file;
     if (jsb_storage_mount() == 0) {
+        if (devmode || jsb_storage_was_formatted()) {
+            jsb_storage_provision();
+        }
+        jsb_config cfg;
+        jsb_storage_load_config(&cfg); /* applied by later settings work; parsed now so warnings show */
+        (void)cfg;
         int found = devmode ? 0 : jsb_storage_load_script(&file);
         if (found == 1) {
             s.source = file.source;

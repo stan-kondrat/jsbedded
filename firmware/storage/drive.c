@@ -18,6 +18,7 @@ static const char *const script_names[] = { "main.js", "index.js", "main.mjs", "
 
 static FATFS fs;
 static bool mounted;
+static bool formatted;
 
 static void say(const char *fmt, ...)
 {
@@ -71,6 +72,7 @@ int jsb_storage_mount(void)
         /* Never formatted, or the PC formatted it as something FatFs can't read (exFAT). */
         say("JSBedded: formatting the %s drive\r\n", JSB_STORAGE_LABEL);
         fr = format();
+        formatted = fr == FR_OK;
     }
     if (fr != FR_OK) {
         say("JSBedded: can't mount the drive (FatFs error %d)\r\n", (int)fr);
@@ -144,4 +146,82 @@ void jsb_storage_unmount(void)
     f_unmount("");
     jsb_hal_disk_sync();
     mounted = false;
+}
+
+bool jsb_storage_was_formatted(void)
+{
+    return formatted;
+}
+
+static const char readme_text[] =
+    "JSBedded script drive\r\n"
+    "=====================\r\n"
+    "\r\n"
+    "main.js    your script; runs after the board restarts\r\n"
+    "config.ini firmware settings (usb_drive, soft_restart, log_output, log_level)\r\n"
+    "\r\n"
+    "Dev mode (you are probably here): the script is not started. Fix or edit it\r\n"
+    "here, eject the drive, then reset the board to run it. Hold BOOTSEL for 2 s\r\n"
+    "while it runs to enter or leave dev mode.\r\n"
+    "\r\n"
+    "Docs: https://github.com/stan-kondrat/jsbedded/tree/main/docs\r\n";
+
+static void write_if_missing(const char *name, const char *text, size_t len)
+{
+    FILINFO info;
+    if (f_stat(name, &info) != FR_NO_FILE) {
+        return;
+    }
+    FIL file;
+    UINT wrote = 0;
+    FRESULT fr = f_open(&file, name, FA_WRITE | FA_CREATE_NEW);
+    if (fr == FR_OK) {
+        fr = f_write(&file, text, (UINT)len, &wrote);
+        FRESULT closed = f_close(&file);
+        if (fr == FR_OK) {
+            fr = closed;
+        }
+    }
+    if (fr != FR_OK || wrote != (UINT)len) {
+        say("JSBedded: can't create %s (FatFs error %d)\r\n", name, (int)fr);
+    }
+}
+
+void jsb_storage_provision(void)
+{
+    if (!mounted) {
+        return;
+    }
+    write_if_missing("config.ini", jsb_config_default_text, strlen(jsb_config_default_text));
+    write_if_missing("README.txt", readme_text, sizeof readme_text - 1);
+}
+
+static void config_warning(int line, const char *msg, void *ctx)
+{
+    (void)ctx;
+    say("JSBedded: config.ini line %d: %s\r\n", line, msg);
+}
+
+void jsb_storage_load_config(jsb_config *cfg)
+{
+    jsb_config_defaults(cfg);
+    if (!mounted) {
+        return;
+    }
+    FIL file;
+    if (f_open(&file, "config.ini", FA_READ) != FR_OK) {
+        return;
+    }
+    static char buf[2048];
+    UINT got = 0;
+    FRESULT fr = f_read(&file, buf, sizeof buf, &got);
+    f_close(&file);
+    if (fr != FR_OK) {
+        say("JSBedded: can't read config.ini (FatFs error %d), defaults used\r\n", (int)fr);
+        return;
+    }
+    if (got == sizeof buf) {
+        say("JSBedded: config.ini is longer than %u bytes, the rest is ignored\r\n", (unsigned)sizeof buf);
+    }
+    jsb_config_parse(buf, got, cfg, config_warning, NULL);
 }

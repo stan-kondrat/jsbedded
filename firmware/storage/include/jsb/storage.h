@@ -7,7 +7,10 @@
 #ifndef JSB_STORAGE_H
 #define JSB_STORAGE_H
 
+#include <stdbool.h>
 #include <stddef.h>
+
+#include "jsb/config.h"
 
 /* Volume label, also the drive name the PC shows. */
 #define JSB_STORAGE_LABEL "JSBEDDED"
@@ -39,5 +42,18 @@ int jsb_storage_load_script(jsb_storage_script *script);
 
 /* Write everything back and unmount. Call before jsb_hal_drive_attach(). */
 void jsb_storage_unmount(void);
+
+/*
+ * Create config.ini (commented defaults) and README.txt on the mounted drive if
+ * they are missing. Called when the drive was just formatted and in dev mode, so
+ * the settings file is there to edit. Failures are reported and otherwise ignored.
+ */
+void jsb_storage_provision(void);
+
+/* True if jsb_storage_mount() formatted the drive in this boot. */
+bool jsb_storage_was_formatted(void);
+
+/* Read [devmode] settings from config.ini on the mounted drive into *cfg (defaults if absent). */
+void jsb_storage_load_config(jsb_config *cfg);
 
 #endif

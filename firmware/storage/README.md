@@ -10,6 +10,7 @@ Built only where the platform implements the drive (`JSB_STORAGE` in
 |---|---|
 | [`include/jsb/storage.h`](include/jsb/storage.h) | mount / format, load the script, unmount |
 | `drive.c` | FatFs calls: format on first boot, script lookup, read into RAM |
+| `config.c`, [`include/jsb/config.h`](include/jsb/config.h) | `config.ini` parser (pure C) and the default file |
 | `diskio.c` | FatFs disk layer on `jsb_hal_disk_*` (512-byte sectors) |
 | `ffconf.h` | FatFs configuration (upstream R0.16 file, changes listed at the top) |
 

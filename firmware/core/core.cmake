@@ -83,6 +83,7 @@ if(JSB_STORAGE)
     get_filename_component(JSB_FATFS_DIR ${JSB_FIRMWARE_DIR}/../third_party/fatfs ABSOLUTE)
     list(APPEND JSB_CORE_SOURCES
         ${JSB_FIRMWARE_DIR}/storage/drive.c
+        ${JSB_FIRMWARE_DIR}/storage/config.c
         ${JSB_FIRMWARE_DIR}/storage/diskio.c
         ${JSB_FATFS_DIR}/ff.c
     )
