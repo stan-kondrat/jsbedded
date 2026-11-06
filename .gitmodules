@@ -27,3 +27,7 @@
 	path = third_party/duktape
 	url = https://github.com/svaarala/duktape
 	ignore = dirty
+[submodule "third_party/mjs"]
+	path = third_party/mjs
+	url = https://github.com/cesanta/mjs
+	ignore = dirty

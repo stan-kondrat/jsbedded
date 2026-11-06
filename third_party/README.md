@@ -9,6 +9,7 @@ Every submodule has `ignore = dirty`, so build output inside it does not show in
 | `ant/` | https://github.com/theMackabu/ant | `v16.5.c41757b4.0` | `firmware/engines/ant` |
 | `duktape/` | https://github.com/svaarala/duktape | `v2.7.0` (`03d4d72`) | reference only; the build uses [`duktape-dist/`](#duktape-dist) |
 | `jerryscript/` | https://github.com/jerryscript-project/jerryscript | `v3.0.0` | `firmware/engines/jerryscript` |
+| `mjs/` | https://github.com/cesanta/mjs | `0f14182` (main; no releases) | `firmware/engines/mjs` (GPLv2) |
 | `mquickjs/` | https://github.com/bellard/mquickjs | `6d4d7eb` (main, 2026-09-26; no release tags) | `firmware/engines/mquickjs` |
 | `quickjs/` | https://github.com/bellard/quickjs | `3d5e064` (release 2026-06-04; no tags, releases bump `VERSION`) | `firmware/engines/quickjs` |
 | `pico-sdk/` | https://github.com/raspberrypi/pico-sdk | `2.3.1` | `firmware/hal/pico` |

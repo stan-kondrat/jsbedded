@@ -20,6 +20,6 @@ HAL implementation on the Raspberry Pi Pico SDK (RP2040 and RP2350).
 - Dev mode (`devmode.c`): BOOTSEL is sampled every 50 ms from a timer; held 2 s
   and released, the board restarts in dev mode (flag in watchdog scratch 0).
   See [recovery](../../../docs/guide/recovery.md).
-- Build: `make -C firmware BOARD=pico2` (needs `cmake`, `ninja`, `arm-none-eabi-gcc`).
+- Build: `make -C firmware BOARD=pico2` (needs `cmake`, `ninja`, `arm-none-eabi-gcc`, Python 3 and a host C/C++ compiler for picotool; see [CONTRIBUTING.md](../../../CONTRIBUTING.md#required-software)).
   The SDK builds `picotool` on first use; set `PICOTOOL_FETCH_FROM_GIT_PATH` to
   keep it outside `build/`.
