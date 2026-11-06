@@ -26,3 +26,4 @@ dist/
 /firmware/hal/esp-idf/build/
 /firmware/hal/esp-idf/dependencies.lock
 /firmware/hal/esp-idf/managed_components/
+/docs/node_modules/

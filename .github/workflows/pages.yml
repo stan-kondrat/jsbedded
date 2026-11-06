@@ -1,0 +1,37 @@
+# Landing at /jsbedded/, docs at /jsbedded/docs/ (make docs-build -> build/site/).
+# Needs Settings -> Pages -> Source: GitHub Actions.
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths: ['docs/**', 'site/**', 'mk/docs.mk', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: make docs-build
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/site
+      - id: deployment
+        uses: actions/deploy-pages@v4
