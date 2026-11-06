@@ -17,9 +17,11 @@ make firmware BOARD=pico2 ENGINE=quickjs
 
 ## In the firmware
 
-- **Globals:** the standard QuickJS set (`JS_NewContext()`) plus `console.log`.
-  Atomics are compiled out (no threads). This release has no Intl or Temporal.
-  No `quickjs-libc`, so no `std`/`os` modules, `print`, `setTimeout` or file I/O.
+- **Globals:** the standard QuickJS set (`JS_NewContext()`) plus the JSBedded
+  host APIs: `console.log`, `setTimeout` / `setInterval` / `clearTimeout` /
+  `clearInterval`, `gpio`, `board` ([API](../api/index.md)). Atomics are
+  compiled out (no threads). This release has no Intl or Temporal. No
+  `quickjs-libc`, so no `std`/`os` modules, `print` or file I/O.
 - **Errors:** uncaught exceptions print `Uncaught <Name>: <message>` and the
   stack (`at <eval> (boot.js:1:7)`). Promise jobs queued by the script run after
   it.

@@ -1,6 +1,6 @@
 /*
  * Host-function part of engine.h for engines that don't implement it yet
- * (quickjs, jerryscript, duktape, none). jsb_engine_define() and
+ * (jerryscript, duktape, none). jsb_engine_define() and
  * jsb_engine_call() report "not supported" once and fail, so the firmware
  * still runs the script with the engine's own globals (console.log) but
  * without timers, gpio or board. The jsb_arg_*() functions are never reached:

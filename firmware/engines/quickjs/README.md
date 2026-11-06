@@ -69,17 +69,29 @@ The Intl use-after-free fix upstream (`4490e58`) doesn't apply: it patches
 
 ## Globals
 
-The standard `JS_NewContext()` set plus:
+The standard `JS_NewContext()` set plus the JSBedded host APIs, installed by
+`core/` and `api/` through [`engine.h`](../include/jsb/engine.h):
 
-| Global | Behaviour |
-|---|---|
-| `console.log(...)` | arguments converted to strings, separated by spaces, then `\r\n`, via `jsb_hal_console_write()` |
+| Global | From | Behaviour |
+|---|---|---|
+| `console.log(...)` | `api/console` | arguments separated by spaces, then `\r\n`. Strings print as-is; other values as QuickJS inspects them (`{ a: 1 }`, `[ 1, 2 ]`; depth 4, 32 items). |
+| `setTimeout`, `setInterval`, `clearTimeout`, `clearInterval` | `core/src/timers.c` | event-loop timers |
+| `gpio` | `api/gpio` | `mode`, `write`, `read` |
+| `board` | `core/src/board.c` | `name`, `LED` |
+
+Host functions: each one is a QuickJS C function with magic (`host_trampoline()`),
+the magic indexing the adapter's table of up to 32 host functions. Callbacks
+retained with `jsb_arg_function()` are duplicated `JSValue`s in a pool of 32;
+`jsb_engine_call()` holds an extra reference during the call, so an interval can
+clear itself. `jsb_throw(JSB_ERROR)` constructs a plain `Error` through the global
+constructor, so it has a stack.
 
 Uncaught exceptions print `Uncaught <Name>: <message>` and the QuickJS stack
 (`    at <eval> (boot.js:1:7)`), with `\r\n` line ends, and
-`jsb_engine_eval()` returns -1. After the script, pending promise jobs run;
-an exception in one is printed the same way. Unhandled promise rejections are not
-reported yet.
+`jsb_engine_eval()` returns -1. Promise jobs run in `jsb_engine_run_jobs()`, right
+after the script and on every event-loop pass (so `.then()` after a timer callback
+works); an exception in one is printed the same way. Unhandled promise rejections
+are not reported yet.
 
 `jsb_engine_eval()` copies the source into a NUL-terminated buffer (QuickJS
 needs one), so callers may pass any buffer.
@@ -111,7 +123,7 @@ Memory use is estimated, not measured. An empty context (all intrinsics, about
 
 QuickJS's parser and interpreter recurse on the C stack.
 `JS_SetMaxStackSize()` makes it throw `RangeError` instead of overflowing. The
-limit is measured from `jsb_engine_eval()`.
+limit is measured from where the engine is entered: `jsb_engine_eval()`, `jsb_engine_call()` (timer callbacks) and `jsb_engine_run_jobs()`.
 
 - **pico-sdk:** the core 0 stack starts at the top of SCRATCH_Y and grows down
   through SCRATCH_X (unused without core 1), 8 KB in all. Below that it runs into

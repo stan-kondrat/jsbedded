@@ -18,6 +18,6 @@
     "json": true,
     "stdlib_objects": true,
     "typed_arrays": true,
-    "host_functions": false
+    "host_functions": true
   }
 }

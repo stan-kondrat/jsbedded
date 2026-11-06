@@ -21,7 +21,7 @@ until the next timer. When no timer is left it prints `JSBedded: script finished
 and idles. Uncaught errors, in the script or in a timer callback, are printed and
 the loop goes on. `ENGINE=none` has no JavaScript and says so. Engines:
 `engines/<engine>/`; `ENGINE` defaults to `none`. The host APIs need an engine
-that implements the host-function contract — today only `mquickjs`
+that implements the host-function contract — `mquickjs` and `quickjs`
 ([`engines/README.md`](engines/README.md)).
 
 The built-in boot script is `core/boot.js` (one `console.log`) unless `SCRIPT=<file.js>`

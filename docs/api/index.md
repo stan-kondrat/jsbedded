@@ -6,14 +6,14 @@ pages under `reference/` are generated from them (TypeDoc +
 `typedoc-plugin-markdown`) by `make docs-gen`. Do not edit them by hand.
 
 All modules are globals today (no `import`). They need an engine that implements
-the host-function contract: only `mquickjs` so far.
+the host-function contract: `mquickjs` and `quickjs`.
 
 | Module | Global | Package | Status |
 |---|---|---|---|
-| console | `console.log` | `@jsbedded/console` | available (mquickjs) |
-| timers | `setTimeout`, `setInterval`, `clearTimeout`, `clearInterval` | `@jsbedded/timers` | available (mquickjs) |
-| gpio | `gpio.mode`, `gpio.write`, `gpio.read` | `@jsbedded/gpio` | available (mquickjs) |
-| board | `board.name`, `board.LED` | `@jsbedded/board` | available (mquickjs) |
+| console | `console.log` | `@jsbedded/console` | available (mquickjs, quickjs) |
+| timers | `setTimeout`, `setInterval`, `clearTimeout`, `clearInterval` | `@jsbedded/timers` | available (mquickjs, quickjs) |
+| gpio | `gpio.mode`, `gpio.write`, `gpio.read` | `@jsbedded/gpio` | available (mquickjs, quickjs) |
+| board | `board.name`, `board.LED` | `@jsbedded/board` | available (mquickjs, quickjs) |
 | uart | | | planned |
 | i2c | | | planned |
 | spi | | | planned |

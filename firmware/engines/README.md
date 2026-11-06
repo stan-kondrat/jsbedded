@@ -50,7 +50,7 @@ jsb_engine_define(engine, "gpio", defs, 1);
   (`Uncaught <Name>: <message>` + stack) and return -1.
 - **Callbacks:** `jsb_arg_function` retains a function (TypeError if it isn't one)
   until `jsb_engine_release`; `jsb_engine_call` calls it with `this` undefined.
-  Engines keep a fixed pool of handles (32 in MQuickJS).
+  Engines keep a fixed pool of handles (32 in MQuickJS and QuickJS).
 - **Jobs:** `jsb_engine_run_jobs` runs Promise reactions; engines without
   Promises return 0.
 - **Console:** `console.log` is a host function in `api/console/`;
@@ -58,8 +58,8 @@ jsb_engine_define(engine, "gpio", defs, 1);
 
 | Engine | Host functions |
 |---|---|
-| `mquickjs` | yes |
-| `quickjs`, `jerryscript`, `duktape` | not yet: they link [`common/host_unsupported.c`](common/host_unsupported.c), which prints `host functions … not supported by this engine yet` once; scripts run with the engine's own `console.log` but no timers, `gpio` or `board` |
+| `mquickjs`, `quickjs` | yes |
+| `jerryscript`, `duktape` | not yet: they link [`common/host_unsupported.c`](common/host_unsupported.c), which prints `host functions … not supported by this engine yet` once; scripts run with the engine's own `console.log` but no timers, `gpio` or `board` |
 | `none` | no JavaScript (`common/host_unsupported.c` keeps it linking) |
 
 Still to add: interrupt/limit hooks, GC hooks, capability reporting, objects and
