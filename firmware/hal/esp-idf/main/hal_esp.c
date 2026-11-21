@@ -1,5 +1,6 @@
 /* HAL on ESP-IDF (ESP32-S3, ESP32-C3). Console: UART0 (the dev board's USB-UART port). */
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "driver/gpio.h"
 #include "esp_timer.h"
@@ -72,6 +73,41 @@ int jsb_hal_gpio_read(int pin)
 bool jsb_hal_devmode(void)
 {
     return false;
+}
+
+/*
+ * No crash record on ESP32 yet: ESP-IDF's own panic handler prints a backtrace
+ * and restarts the chip, and the next boot doesn't know about it.
+ */
+bool jsb_hal_crash_take(jsb_crash_info *info)
+{
+    (void)info;
+    return false;
+}
+
+void jsb_hal_crash_step(const char *step)
+{
+    (void)step;
+}
+
+void jsb_hal_crash_set_new_image(bool new_image)
+{
+    (void)new_image;
+}
+
+void jsb_hal_crash_streak_reset(void)
+{
+}
+
+_Noreturn void jsb_hal_fatal(const char *msg, const char *file, int line)
+{
+    printf("JSBedded: fatal error: %s (%s:%d)\r\n", msg != NULL ? msg : "", file != NULL ? file : "-", line);
+    abort();
+}
+
+uint32_t jsb_hal_image_id(void)
+{
+    return 0;
 }
 
 void app_main(void)

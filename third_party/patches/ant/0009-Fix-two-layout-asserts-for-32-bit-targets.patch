@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: JSBedded <noreply@jsbedded.invalid>
+Date: Sat, 21 Nov 2026 00:00:00 +0000
+Subject: [PATCH 9/9] Fix two layout asserts for 32-bit targets
+
+Not sent upstream yet (found building the embed profile for
+Cortex-M0+; the same asserts fail on wasm32).
+
+- object.h: obj_alloc clears u.array.len and u.array.cap to clear the
+  promise state pointer. With 4-byte pointers, u.promise.state sits at
+  offset 8, inside cap but not starting at len, so the assert that the
+  two ranges are identical fails although the clearing still works. It
+  now checks that the state pointer lies within len..cap.
+- modules/buffer.h: ArrayBufferData is 32 bytes on ILP32 (six 4-byte
+  fields and six bytes, padded to 4), not 28.
+---
+ include/modules/buffer.h | 2 +-
+ include/object.h         | 4 ++--
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/include/modules/buffer.h b/include/modules/buffer.h
+index 71214be4..6ec7c757 100644
+--- a/include/modules/buffer.h
++++ b/include/modules/buffer.h
+@@ -31,7 +31,7 @@ typedef struct ArrayBufferData {
+ #if UINTPTR_MAX == UINT64_MAX
+ static_assert(sizeof(ArrayBufferData) == 48, "ArrayBufferData layout changed");
+ #elif UINTPTR_MAX == UINT32_MAX
+-static_assert(sizeof(ArrayBufferData) == 28, "ArrayBufferData layout changed");
++static_assert(sizeof(ArrayBufferData) == 32, "ArrayBufferData layout changed");
+ #endif
+ 
+ typedef enum {
+diff --git a/include/object.h b/include/object.h
+index 12c27b0f..8f6e04e7 100644
+--- a/include/object.h
++++ b/include/object.h
+@@ -265,8 +265,8 @@ static_assert(
+ );
+ 
+ static_assert(
+-  offsetof(ant_object_t, u.promise.state) == offsetof(ant_object_t, u.array.len) &&
+-  offsetof(ant_object_t, u.promise.state) + sizeof(ant_promise_state_t *) ==
++  offsetof(ant_object_t, u.promise.state) >= offsetof(ant_object_t, u.array.len) &&
++  offsetof(ant_object_t, u.promise.state) + sizeof(ant_promise_state_t *) <=
+   offsetof(ant_object_t, u.array.cap) + sizeof(uint32_t),
+   "obj_alloc clears the promise state pointer through u.array.len and u.array.cap"
+ );

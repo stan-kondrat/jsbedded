@@ -10,6 +10,7 @@
 # files whose content changed.
 
 set(JSB_DUKTAPE_VERSION 2.7.0)
+set(JSB_ENGINE_VERSION ${JSB_DUKTAPE_VERSION})
 set(JSB_DUKTAPE_SHA256 90f8d2fa8b5567c6899830ddef2c03f3c27960b11aca222fa17aa7ac613c2890)
 get_filename_component(JSB_DUKTAPE_TARBALL
     ${JSB_FIRMWARE_DIR}/../third_party/duktape-dist/duktape-${JSB_DUKTAPE_VERSION}.tar.xz ABSOLUTE)

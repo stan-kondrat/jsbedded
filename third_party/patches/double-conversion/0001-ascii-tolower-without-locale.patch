@@ -1,0 +1,28 @@
+Local-only (JSBedded Ant build): ToLower() used std::locale, which links ~120 KB of
+libstdc++ locale and stream code into bare-metal images. ASCII lowering is what the
+"C" locale does. Upstream candidate: https://github.com/google/double-conversion
+
+diff --git a/double-conversion/string-to-double.cc b/double-conversion/string-to-double.cc
+index 972956c..f8f3df1 100644
+--- a/double-conversion/string-to-double.cc
++++ b/double-conversion/string-to-double.cc
+@@ -26,7 +26,6 @@
+ // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ 
+ #include <climits>
+-#include <locale>
+ #include <cmath>
+ 
+ #include "string-to-double.h"
+@@ -52,9 +51,8 @@ namespace double_conversion {
+ namespace {
+ 
+ inline char ToLower(char ch) {
+-  static const std::ctype<char>& cType =
+-      std::use_facet<std::ctype<char> >(std::locale::classic());
+-  return cType.tolower(ch);
++  // ASCII only, the same as the "C" locale; avoids pulling in <locale>.
++  return (ch >= 'A' && ch <= 'Z') ? static_cast<char>(ch - 'A' + 'a') : ch;
+ }
+ 
+ inline char Pass(char ch) {

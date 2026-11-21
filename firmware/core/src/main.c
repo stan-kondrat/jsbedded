@@ -9,12 +9,16 @@
  * the boot script built into the image (SCRIPT=, default core/boot.js). After
  * reading, the drive is handed to the PC; a changed script runs after a reset.
  * In dev mode (jsb_hal_devmode) the drive is handed over and no script runs.
+ *
+ * After a crash (jsb_hal_crash_take) the report goes to CRASH.TXT and the
+ * console; the script then starts again or not, see jsb_crash_stop_reason.
  */
 #include <stdio.h>
 #include <string.h>
 
 #include "jsb/api.h"
 #include "jsb/core.h"
+#include "jsb/crash.h"
 #include "jsb/engine.h"
 #include "jsb/hal.h"
 #include "jsb/version.h"
@@ -62,10 +66,24 @@ typedef struct {
     const char *from;
 } script_choice;
 
+/* The previous boot's crash (jsb_hal_crash_take), if crashed. */
+static jsb_crash_info crash;
+static bool crashed;
+static const char *crash_stop; /* why the script doesn't start after it; NULL: it starts */
+static char crash_text[JSB_CRASH_TEXT_MAX];
+
+/* Decide what to do after the crash and write the report (CRASH.TXT, console). */
+static void report_crash(bool report_setting)
+{
+    crash_stop = jsb_crash_stop_reason(&crash, report_setting);
+    jsb_crash_format(&crash, jsb_hal_image_id(), crash_stop, crash_text, sizeof crash_text);
+}
+
 /*
  * Read the script from the drive if there is one, then hand the drive to the PC.
  * A script file that can't be read (too large, I/O error) gives source NULL:
  * nothing runs, rather than the built-in script in its place.
+ * After a crash, CRASH.TXT is written first (so it is there when the PC sees the drive).
  */
 static script_choice pick_script(bool devmode)
 {
@@ -76,9 +94,13 @@ static script_choice pick_script(bool devmode)
         if (devmode || jsb_storage_was_formatted()) {
             jsb_storage_provision();
         }
+        jsb_hal_crash_set_new_image(jsb_storage_update_firmware_info());
         jsb_config cfg;
-        jsb_storage_load_config(&cfg); /* applied by later settings work; parsed now so warnings show */
-        (void)cfg;
+        jsb_storage_load_config(&cfg); /* only on_crash is applied so far; the rest is parsed so warnings show */
+        if (crashed) {
+            report_crash(cfg.on_crash == JSB_ON_CRASH_REPORT);
+            jsb_storage_write_text("CRASH.TXT", crash_text);
+        }
         int found = devmode ? 0 : jsb_storage_load_script(&file);
         if (found == 1) {
             s.source = file.source;
@@ -108,9 +130,24 @@ static void install_apis(jsb_engine *engine)
     jsb_board_install(engine);
 }
 
+void jsb_trace(const char *what); /* TEMP-TRACE */
+
+/* After JSB_CRASH_STREAK_RESET_MS without a crash, the next one counts from 1 again. */
+static void note_running_fine(void)
+{
+    static bool done;
+    if (!done && jsb_hal_millis() >= JSB_CRASH_STREAK_RESET_MS) {
+        jsb_hal_crash_streak_reset();
+        done = true;
+    }
+}
+
 static void run_event_loop(jsb_engine *engine)
 {
-    for (;;) {
+    jsb_hal_crash_step("event loop");
+    for (int pass = 0;; pass++) {
+        if (pass < 3) jsb_trace("event loop pass"); /* TEMP-TRACE */
+        note_running_fine();
         jsb_timers_run_due(engine);
         jsb_engine_run_jobs(engine);
         int64_t wait = jsb_timers_next_wait();
@@ -126,6 +163,8 @@ void jsb_main(void)
     char line[160];
 
     jsb_hal_init();
+    crashed = jsb_hal_crash_take(&crash);
+    jsb_hal_crash_step("reading the drive");
     bool devmode = jsb_hal_devmode();
     script_choice script = pick_script(devmode);
 
@@ -135,28 +174,46 @@ void jsb_main(void)
     if (n > 0) {
         jsb_hal_console_write(line, (size_t)n < sizeof line ? (size_t)n : sizeof line - 1);
     }
+    if (crashed) {
+        if (crash_text[0] == '\0') { /* no drive: config.ini unread, on_crash is the default */
+            report_crash(false);
+        }
+        console_print(crash_text);
+    }
     if (devmode) {
         console_print("JSBedded: dev mode: the script is not started. Edit it on the drive, then reset "
                       "(or hold the boot button 2 s again) to run it.\r\n");
         devmode_idle();
+    }
+    if (crashed && crash_stop != NULL) {
+        idle_forever(); /* the drive is attached, CRASH.TXT on it */
     }
     if (script.source == NULL) {
         console_print("JSBedded: no script started; fix it on the drive, then reset\r\n");
         idle_forever();
     }
 
+    jsb_hal_crash_step("starting the engine");
+    jsb_trace("before engine create"); /* TEMP-TRACE */
     jsb_engine *engine = jsb_engine_create();
+    jsb_trace("after engine create"); /* TEMP-TRACE */
     if (engine == NULL) {
         console_print("JSBedded: no JavaScript engine in this image\r\n");
         idle_forever();
     }
+    jsb_hal_crash_step("installing the APIs");
     install_apis(engine);
+    jsb_trace("apis installed"); /* TEMP-TRACE */
 
     /* An uncaught error is reported by the engine; timers the script already set keep running. */
+    jsb_hal_crash_step("running the script");
     jsb_engine_eval(engine, script.source, script.len, script.name);
+    jsb_trace("script evaluated"); /* TEMP-TRACE */
     jsb_engine_run_jobs(engine);
     run_event_loop(engine);
 
+    jsb_hal_crash_step("script finished");
+    jsb_hal_crash_streak_reset();
     console_print("JSBedded: script finished\r\n");
     idle_forever();
 }

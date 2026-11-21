@@ -1,9 +1,12 @@
 # Test, benchmark and matrix targets.
 
-.PHONY: test bench matrix
+.PHONY: test test-firmware bench matrix
 
-test:
-	$(call not_implemented,$@)
+# Conformance tests (tests/conformance, on hardware) are not wired up yet.
+test: test-firmware
+
+test-firmware:
+	$(MAKE) -C tests/firmware OUT=$(abspath $(BUILD_DIR))/tests/firmware
 
 bench:
 	$(call not_implemented,$@)

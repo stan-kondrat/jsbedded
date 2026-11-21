@@ -48,6 +48,61 @@ int jsb_hal_gpio_read(int pin);
  */
 bool jsb_hal_devmode(void);
 
+/* --- crash record --- */
+
+/*
+ * A crash (CPU fault, failed assert(), abort(), SDK panic or exit(), engine fatal
+ * error via jsb_hal_fatal) is saved in RAM that survives the restart that follows,
+ * and the next boot reads it with jsb_hal_crash_take(). It is saved whatever the
+ * log settings are. core/src/crash.c turns it into text (CRASH.TXT) and decides
+ * whether the script starts again. Platforms that can't keep a record return
+ * false from jsb_hal_crash_take() and implement the rest as no-ops.
+ */
+typedef enum {
+    JSB_CRASH_FAULT,  /* CPU fault (hard fault): bad pointer, stack overflow, ... */
+    JSB_CRASH_ASSERT, /* failed C assert() */
+    JSB_CRASH_ABORT,  /* abort() */
+    JSB_CRASH_PANIC,  /* SDK panic (e.g. out of memory) or exit() */
+    JSB_CRASH_FATAL,  /* jsb_hal_fatal(): an engine's fatal error */
+} jsb_crash_kind;
+
+typedef struct {
+    uint32_t kind;      /* jsb_crash_kind */
+    uint32_t pc, lr, sp; /* registers at the fault; for the others lr is the caller, pc and sp 0 */
+    uint32_t uptime_ms; /* time since boot */
+    uint32_t count;     /* crashes in a row, 1 for the first (see jsb_hal_crash_streak_reset) */
+    uint32_t image_id;  /* jsb_hal_image_id() of the image that crashed */
+    uint32_t new_image; /* 1: it crashed in the first boot after that image was flashed */
+    int32_t line;       /* source line, 0 if none */
+    char step[32];      /* last jsb_hal_crash_step(), "" if none */
+    char msg[96];       /* message or failed expression, "" if none */
+    char file[64];      /* source file, "" if none */
+} jsb_crash_info;
+
+/*
+ * The previous boot's crash: fills *info and returns true once, then forgets it.
+ * False if the previous boot didn't crash or the record was lost (power cycle).
+ */
+bool jsb_hal_crash_take(jsb_crash_info *info);
+
+/* Name what the firmware is doing now (a string constant); a crash record keeps it. */
+void jsb_hal_crash_step(const char *step);
+
+/* Mark this boot as the first one after a new image was flashed (kept in a crash record). */
+void jsb_hal_crash_set_new_image(bool new_image);
+
+/* The firmware has run long enough without crashing: the next crash counts from 1 again. */
+void jsb_hal_crash_streak_reset(void);
+
+/* Save a crash record for an unrecoverable error and restart the board. */
+_Noreturn void jsb_hal_fatal(const char *msg, const char *file, int line);
+
+/*
+ * An id of the firmware image: changes when different firmware is flashed (a hash of
+ * the image, not of its version string), 0 if the platform can't tell.
+ */
+uint32_t jsb_hal_image_id(void);
+
 /* --- script drive (only on platforms that build storage/, JSB_STORAGE=1) --- */
 
 /*

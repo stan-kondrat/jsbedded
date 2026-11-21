@@ -1,0 +1,175 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: JSBedded <noreply@jsbedded.invalid>
+Date: Sat, 21 Nov 2026 00:00:00 +0000
+Subject: [PATCH 3/9] Make the embed heap geometry configurable
+
+Not sent upstream yet (upstream ask 2 in JSBedded's
+firmware/engines/ant/README.md).
+
+Under the embed profile the GC arena chunk size (1 MB), the per-kind
+arena maximums, ANT_ARENA_MIN (8 MB) and the page size are fixed, and
+the arena owner tables cover the whole 32-bit address space. Each
+isolate creates four arenas, each with a full chunk, so the floor is
+several megabytes: fine for wasm32, far too large for a microcontroller
+with a few hundred KB of SRAM.
+
+- ANT_EMBED_ARENA_CHUNK_SHIFT, ANT_EMBED_ARENA_MAX,
+  ANT_EMBED_{CLOSURE,UPVALUE,PROMISE}_ARENA_MAX, ANT_EMBED_ARENA_MIN and
+  ANT_EMBED_PAGE_SIZE override them; the defaults are the old values.
+  static_asserts reject inconsistent settings.
+- ANT_EMBED_HEAP_BASE / ANT_EMBED_HEAP_SPAN size the owner tables from
+  the RAM region the heap lives in instead of 4 GiB.
+- ANT_EMBED_ARENA_LAZY creates an arena's first chunk on its first
+  allocation, so arenas a script never uses cost nothing.
+- ANT_EMBED_POOL_PAGE_SIZE sets the pools' page size (default 4096, as
+  before).
+---
+ include/arena.h | 50 ++++++++++++++++++++++++++++++++++++++++++-------
+ src/gc/arena.c  | 31 ++++++++++++++++++++++++------
+ src/pool.c      |  7 ++++++-
+ 3 files changed, 74 insertions(+), 14 deletions(-)
+
+diff --git a/include/arena.h b/include/arena.h
+index 23f0b4d2..9f5667bf 100644
+--- a/include/arena.h
++++ b/include/arena.h
+@@ -45,12 +45,48 @@ typedef struct ant_fixed_arena {
+ } ant_fixed_arena_t;
+ 
+ #ifdef ANT_EMBED
+-static constexpr unsigned ANT_ARENA_CHUNK_SHIFT = 20;
+-static constexpr size_t ANT_ARENA_MAX         = 8ULL * 1024 * 1024;
+-static constexpr size_t ANT_CLOSURE_ARENA_MAX = 4ULL * 1024 * 1024;
+-static constexpr size_t ANT_UPVALUE_ARENA_MAX = 2ULL * 1024 * 1024;
+-static constexpr size_t ANT_PROMISE_ARENA_MAX = 2ULL * 1024 * 1024;
+-static constexpr size_t ANT_ARENA_MIN         = 8ULL * 1024 * 1024;
++// Heap geometry for the embed profile. The defaults suit the WebAssembly
++// reactor; small targets override them on the command line (for example
++// -DANT_EMBED_ARENA_CHUNK_SHIFT=12 for 4 KB chunks).
++#ifndef ANT_EMBED_ARENA_CHUNK_SHIFT
++#define ANT_EMBED_ARENA_CHUNK_SHIFT 20
++#endif
++#ifndef ANT_EMBED_ARENA_MAX
++#define ANT_EMBED_ARENA_MAX (8UL * 1024 * 1024)
++#endif
++#ifndef ANT_EMBED_CLOSURE_ARENA_MAX
++#define ANT_EMBED_CLOSURE_ARENA_MAX (4UL * 1024 * 1024)
++#endif
++#ifndef ANT_EMBED_UPVALUE_ARENA_MAX
++#define ANT_EMBED_UPVALUE_ARENA_MAX (2UL * 1024 * 1024)
++#endif
++#ifndef ANT_EMBED_PROMISE_ARENA_MAX
++#define ANT_EMBED_PROMISE_ARENA_MAX (2UL * 1024 * 1024)
++#endif
++#ifndef ANT_EMBED_ARENA_MIN
++#define ANT_EMBED_ARENA_MIN ANT_EMBED_ARENA_MAX
++#endif
++#ifndef ANT_EMBED_PAGE_SIZE
++#define ANT_EMBED_PAGE_SIZE 65536u
++#endif
++static constexpr unsigned ANT_ARENA_CHUNK_SHIFT = ANT_EMBED_ARENA_CHUNK_SHIFT;
++static constexpr size_t ANT_ARENA_MAX         = ANT_EMBED_ARENA_MAX;
++static constexpr size_t ANT_CLOSURE_ARENA_MAX = ANT_EMBED_CLOSURE_ARENA_MAX;
++static constexpr size_t ANT_UPVALUE_ARENA_MAX = ANT_EMBED_UPVALUE_ARENA_MAX;
++static constexpr size_t ANT_PROMISE_ARENA_MAX = ANT_EMBED_PROMISE_ARENA_MAX;
++static constexpr size_t ANT_ARENA_MIN         = ANT_EMBED_ARENA_MIN;
++static_assert(ANT_ARENA_MIN <= ANT_ARENA_MAX, "ANT_EMBED_ARENA_MIN must not exceed ANT_EMBED_ARENA_MAX");
++static_assert(
++  ANT_ARENA_MAX % ANT_CLOSURE_ARENA_MAX == 0 &&
++  ANT_ARENA_MAX % ANT_UPVALUE_ARENA_MAX == 0 &&
++  ANT_ARENA_MAX % ANT_PROMISE_ARENA_MAX == 0,
++  "per-kind arena maximums must divide ANT_EMBED_ARENA_MAX"
++);
++static_assert(
++  (ANT_EMBED_PAGE_SIZE & (ANT_EMBED_PAGE_SIZE - 1)) == 0 &&
++  ANT_EMBED_PAGE_SIZE <= ((size_t)1 << ANT_EMBED_ARENA_CHUNK_SHIFT),
++  "ANT_EMBED_PAGE_SIZE must be a power of two no larger than an arena chunk"
++);
+ #else
+ static constexpr unsigned ANT_ARENA_CHUNK_SHIFT = 23;
+ static constexpr size_t ANT_ARENA_MAX         = 4ULL * 1024 * 1024 * 1024;
+@@ -75,7 +111,7 @@ static_assert(
+ 
+ static inline size_t ant_arena_page_size(void) {
+ #ifdef ANT_EMBED
+-  return 65536u;
++  return ANT_EMBED_PAGE_SIZE;
+ #elif defined(_WIN32)
+   static size_t cached = 0;
+   if (cached) return cached;
+diff --git a/src/gc/arena.c b/src/gc/arena.c
+index 99d75569..a7f847db 100644
+--- a/src/gc/arena.c
++++ b/src/gc/arena.c
+@@ -16,15 +16,28 @@ static _Atomic(uint32_t) arena_next_id = 1;
+ 
+ #ifdef ANT_EMBED
+ 
+-static constexpr size_t ARENA_WASM_SLOTS = ((uint64_t)UINT32_MAX + 1) >> ANT_ARENA_CHUNK_SHIFT;
+-static _Atomic(uint32_t) wasm_arena_owners[ARENA_WASM_SLOTS];
+-static _Atomic(uint16_t) wasm_arena_ordinals[ARENA_WASM_SLOTS];
++// Address range the arena chunks live in. The default covers the whole 32-bit
++// space; an embedder whose heap is one RAM region narrows it to shrink the
++// owner tables (for example -DANT_EMBED_HEAP_BASE=0x20000000u
++// -DANT_EMBED_HEAP_SPAN=0x42000u on an RP2040).
++#ifndef ANT_EMBED_HEAP_BASE
++#define ANT_EMBED_HEAP_BASE 0u
++#endif
++#ifndef ANT_EMBED_HEAP_SPAN
++#define ANT_EMBED_HEAP_SPAN ((uint64_t)UINT32_MAX + 1)
++#endif
++
++static constexpr size_t ARENA_EMBED_SLOTS =
++  (size_t)(((uint64_t)ANT_EMBED_HEAP_SPAN + ANT_ARENA_CHUNK_SIZE - 1) >> ANT_ARENA_CHUNK_SHIFT);
++static _Atomic(uint32_t) embed_arena_owners[ARENA_EMBED_SLOTS];
++static _Atomic(uint16_t) embed_arena_ordinals[ARENA_EMBED_SLOTS];
+ 
+ static bool arena_table_ready(void) {
+   if (!arena_table_slots) {
+-    arena_owners = wasm_arena_owners;
+-    arena_ordinals = wasm_arena_ordinals;
+-    arena_table_slots = ARENA_WASM_SLOTS;
++    arena_owners = embed_arena_owners;
++    arena_ordinals = embed_arena_ordinals;
++    arena_table_base = ANT_EMBED_HEAP_BASE;
++    arena_table_slots = ARENA_EMBED_SLOTS;
+   }
+   return true;
+ }
+@@ -159,7 +172,13 @@ bool fixed_arena_init(ant_fixed_arena_t *a, size_t elem_size, size_t epoch_offse
+ 
+   if (!a->chunk_bytes) return false;
+   a->id = arena_take_id();
++#if defined(ANT_EMBED) && defined(ANT_EMBED_ARENA_LAZY)
++  // Small heaps: the first chunk comes with the first allocation
++  // (fixed_arena_refill), so arenas a script never uses cost nothing.
++  return true;
++#else
+   return arena_add_chunk(a, ARENA_INITIAL_COMMIT);
++#endif
+ }
+ 
+ void fixed_arena_destroy(ant_fixed_arena_t *a) {
+diff --git a/src/pool.c b/src/pool.c
+index c647dc74..2c7ff1cd 100644
+--- a/src/pool.c
++++ b/src/pool.c
+@@ -92,12 +92,17 @@ static inline void pool_stats_add(ant_pool_stats_t *dst, ant_pool_stats_t src) {
+   dst->blocks += src.blocks;
+ }
+ 
++// Page size the pools align large blocks to; small embed heaps lower it.
++#if defined(ANT_EMBED) && !defined(ANT_EMBED_POOL_PAGE_SIZE)
++#define ANT_EMBED_POOL_PAGE_SIZE 4096u
++#endif
++
+ static inline size_t pool_page_size(void) {
+   static _Atomic size_t cached = 0;
+   size_t size = atomic_load_explicit(&cached, memory_order_relaxed);
+   if (size) return size;
+ #ifdef ANT_EMBED
+-  size = 4096u;
++  size = ANT_EMBED_POOL_PAGE_SIZE;
+ #elif defined(_WIN32)
+   SYSTEM_INFO info;
+   GetSystemInfo(&info);

@@ -1,0 +1,19 @@
+Local-only (JSBedded Ant build): the global variable table is 64 x 160 bytes of
+static RAM, filled only by the Ant CLI. CRPRINTF_MAX_VARS lets small targets
+shrink it. Upstream candidate: https://github.com/theMackabu/crprintf
+
+diff --git a/src/crprintf.c b/src/crprintf.c
+--- a/src/crprintf.c
++++ b/src/crprintf.c
+@@ -134,7 +134,10 @@ typedef struct {
+   int pad_depth;
+ } vm_regs_t;
+ 
+-#define MAX_VARS      64
++#ifndef CRPRINTF_MAX_VARS
++#define CRPRINTF_MAX_VARS 64
++#endif
++#define MAX_VARS      CRPRINTF_MAX_VARS
+ #define MAX_VAR_NAME  32
+ #define MAX_VAR_VALUE 128
+ 

@@ -1,0 +1,88 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: JSBedded <noreply@jsbedded.invalid>
+Date: Sat, 21 Nov 2026 00:00:00 +0000
+Subject: [PATCH 5/9] Add a single-threaded lock option for embed builds
+
+Not sent upstream yet (upstream ask 5 in JSBedded's
+firmware/engines/ant/README.md).
+
+src/handles.c takes a pthread mutex on every handle registration, and
+include/sync.h has no option without pthreads. Bare-metal C libraries
+(newlib on pico-sdk) have no pthread implementation, so the embed core
+does not link there.
+
+- Under ANT_EMBED, sync.h's ant_mutex_t compiles to nothing unless the
+  embedder defines ANT_EMBED_THREADS.
+- handles.c uses sync.h instead of its own Windows/pthread lock.
+---
+ include/sync.h | 11 ++++++++++-
+ src/handles.c  | 24 ++++++++----------------
+ 2 files changed, 18 insertions(+), 17 deletions(-)
+
+diff --git a/include/sync.h b/include/sync.h
+index 5bd685be..31370e90 100644
+--- a/include/sync.h
++++ b/include/sync.h
+@@ -1,7 +1,16 @@
+ #ifndef ANT_SYNC_H
+ #define ANT_SYNC_H
+ 
+-#ifdef _WIN32
++#if defined(ANT_EMBED) && !defined(ANT_EMBED_THREADS)
++// Single-threaded embed builds (bare-metal targets without pthreads): the
++// runtime is only entered from one thread, so the locks compile to nothing.
++// Embedders that call into Ant from several threads define ANT_EMBED_THREADS.
++typedef struct { char unused; } ant_mutex_t;
++#define ANT_MUTEX_INIT {0}
++
++static inline void ant_mutex_lock(ant_mutex_t *m) { (void)m; }
++static inline void ant_mutex_unlock(ant_mutex_t *m) { (void)m; }
++#elif defined(_WIN32)
+ #include <windows.h>
+ 
+ typedef SRWLOCK ant_mutex_t;
+diff --git a/src/handles.c b/src/handles.c
+index 20e47857..43ce71c7 100644
+--- a/src/handles.c
++++ b/src/handles.c
+@@ -4,16 +4,14 @@
+ #include "realm.h"
+ #include "ptr.h"
+ 
+-#include <stdatomic.h>
+-#include <stdbool.h>
+-#include <stdlib.h>
+-
+ #ifdef _WIN32
+ #define WIN32_LEAN_AND_MEAN
+-#include <windows.h>
+-#else
+-#include <pthread.h>
+ #endif
++#include "sync.h"
++
++#include <stdatomic.h>
++#include <stdbool.h>
++#include <stdlib.h>
+ 
+ enum {
+   CFUNC_SLAB_SIZE = 64 * 1024,
+@@ -58,15 +56,9 @@ static _Atomic(ant_cfunc_entry_t *) cfunc_source_buckets[REGISTRY_BUCKET_COUNT];
+ static _Atomic(ant_cfunc_entry_t *) cfunc_entrypoint_buckets[REGISTRY_BUCKET_COUNT];
+ static _Atomic(ant_external_entry_t *) external_buckets[REGISTRY_BUCKET_COUNT];
+ 
+-#ifdef _WIN32
+-static SRWLOCK handles_lock = SRWLOCK_INIT;
+-static void handles_lock_acquire(void) { AcquireSRWLockExclusive(&handles_lock); }
+-static void handles_lock_release(void) { ReleaseSRWLockExclusive(&handles_lock); }
+-#else
+-static pthread_mutex_t handles_lock = PTHREAD_MUTEX_INITIALIZER;
+-static void handles_lock_acquire(void) { pthread_mutex_lock(&handles_lock); }
+-static void handles_lock_release(void) { pthread_mutex_unlock(&handles_lock); }
+-#endif
++static ant_mutex_t handles_lock = ANT_MUTEX_INIT;
++static void handles_lock_acquire(void) { ant_mutex_lock(&handles_lock); }
++static void handles_lock_release(void) { ant_mutex_unlock(&handles_lock); }
+ 
+ static inline size_t registry_bucket(uintptr_t key) {
+   return (size_t)(((uint64_t)key * 0x9E3779B97F4A7C15ull) >> (64 - REGISTRY_BUCKET_BITS));

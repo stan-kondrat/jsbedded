@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: JSBedded <noreply@jsbedded.invalid>
+Date: Sat, 21 Nov 2026 00:00:00 +0000
+Subject: [PATCH 7/9] Scan callee-saved registers on Thumb-1 embed builds
+
+Not sent upstream yet (found while porting the embed profile to
+Cortex-M0+; no matching upstream ask).
+
+- gc_scan_current_stack() relies on setjmp() to spill the callee-saved
+  registers before the conservative stack scan, and the embed profile
+  has no setjmp. On Thumb-1 (ARMv6-M) the scan now stores r4-r11 into
+  its own frame first, so values held only in registers stay alive.
+- sv_execute_frame() calls __builtin_unwind_init() so that the
+  prologue saves every callee-saved register. On Thumb-1, LLVM sizes
+  that save area as if it held d8-d15 too but never pushes them, so
+  the epilogue restores sp 64 bytes low and returns through a local.
+  The call is skipped there; those targets only build the embed
+  profile, which scans the whole C stack.
+---
+ src/gc/objects.c    | 9 +++++++++
+ src/silver/engine.c | 7 ++++++-
+ 2 files changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/src/gc/objects.c b/src/gc/objects.c
+index 83c38351..aaef3147 100644
+--- a/src/gc/objects.c
++++ b/src/gc/objects.c
+@@ -1034,6 +1034,15 @@ static void gc_scan_current_stack(ant_t *js) {
+ #ifndef ANT_EMBED
+   jmp_buf jb;
+   if (setjmp(jb) != 0) return;
++#elif defined(__arm__) && defined(__ARM_ARCH_ISA_THUMB) && __ARM_ARCH_ISA_THUMB == 1
++  // No setjmp in the embed profile: spill the callee-saved registers into
++  // this frame so the conservative scan below sees values held only in them.
++  volatile uintptr_t spilled[8];
++  __asm volatile(
++    "str r4, [%0, #0]\n str r5, [%0, #4]\n str r6, [%0, #8]\n str r7, [%0, #12]\n"
++    "mov r1, r8\n str r1, [%0, #16]\n mov r1, r9\n str r1, [%0, #20]\n"
++    "mov r1, r10\n str r1, [%0, #24]\n mov r1, r11\n str r1, [%0, #28]\n"
++    : : "l"(spilled) : "r1", "memory");
+ #endif
+   uintptr_t lo, hi;
+   if (!gc_get_stack_bounds((uintptr_t)js->cstk.base, gc_native_sp(), &lo, &hi)) return;
+diff --git a/src/silver/engine.c b/src/silver/engine.c
+index 2332d48f..0fb7eed8 100644
+--- a/src/silver/engine.c
++++ b/src/silver/engine.c
+@@ -1865,9 +1865,14 @@ ant_value_t sv_execute_frame(sv_vm_t *vm, sv_func_t *func, ant_value_t this, ant
+   * instead, leaving less than a full save area below it. The segment is then
+   * empty rather than inverted, so nothing is skipped.
+   */
+-#if defined(__GNUC__)
++#if defined(__GNUC__) && !(defined(__ARM_ARCH_ISA_THUMB) && __ARM_ARCH_ISA_THUMB == 1)
+   __builtin_unwind_init();
+ #endif
++  // Thumb-1 (ARMv6-M, e.g. Cortex-M0+) is left out: there LLVM sizes the save
++  // area as if it held d8-d15 too, but never pushes them, so the epilogue
++  // restores sp 64 bytes low and returns through a local. Those targets only
++  // build the embed profile, which scans the whole C stack and spills the
++  // callee-saved registers itself (gc_scan_current_stack).
+   gc_vm_seg_t interp_seg;
+   uintptr_t seg_fp = (uintptr_t)__builtin_frame_address(0);
+   uintptr_t seg_hi = seg_fp - GC_VM_SEG_SAVED_REGS_BYTES;

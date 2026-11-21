@@ -1,0 +1,529 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: JSBedded <noreply@jsbedded.invalid>
+Date: Sat, 21 Nov 2026 00:00:00 +0000
+Subject: [PATCH 2/9] Move the embed glue into src/embed and list the embed
+ sources
+
+Not sent upstream yet (upstream ask 4 in JSBedded's
+firmware/engines/ant/README.md).
+
+The stubs that make the interpreter-only build link (no ESM, timers,
+events, Date or Buffer; the microtask queue; the JIT entry points; the
+filesystem helpers) live in packages/wasm/src/ and include
+wasm_embed.h, so an embedder outside Meson has to copy them.
+
+- packages/wasm/src/{stubs,jit_stub,utils}.c move to src/embed/ and
+  include embed.h. Only bridge.c and platform.c stay Wasm-specific.
+- sources.json gets an "embed" group: the core, GC, Silver, the
+  built-ins the reactor initialises and src/embed/*.c, as a plain file
+  list that CMake, ESP-IDF or pico-sdk builds can read without Meson.
+  It matches the reactor's core_sources.
+- Error messages say "this embed build" instead of "@antjs.org/wasm".
+---
+ packages/wasm/meson.build                   |   6 +-
+ sources.json                                |  59 ++++++
+ {packages/wasm/src => src/embed}/jit_stub.c |   0
+ {packages/wasm/src => src/embed}/stubs.c    | 196 ++++++++++----------
+ {packages/wasm/src => src/embed}/utils.c    |   2 +-
+ 5 files changed, 161 insertions(+), 102 deletions(-)
+ rename {packages/wasm/src => src/embed}/jit_stub.c (100%)
+ rename {packages/wasm/src => src/embed}/stubs.c (67%)
+ rename {packages/wasm/src => src/embed}/utils.c (98%)
+
+diff --git a/packages/wasm/meson.build b/packages/wasm/meson.build
+index a1cc9334..5b0064c4 100644
+--- a/packages/wasm/meson.build
++++ b/packages/wasm/meson.build
+@@ -98,9 +98,9 @@ core_sources = files(
+   '../../src/modules/symbol.c',
+   'src/bridge.c',
+   'src/platform.c',
+-  'src/stubs.c',
+-  'src/jit_stub.c',
+-  'src/utils.c',
++  '../../src/embed/stubs.c',
++  '../../src/embed/jit_stub.c',
++  '../../src/embed/utils.c',
+ )
+ 
+ add_project_arguments(
+diff --git a/sources.json b/sources.json
+index 05a55e95..c72cff00 100644
+--- a/sources.json
++++ b/sources.json
+@@ -148,5 +148,64 @@
+       "src/pkg/**/*.ts"
+     ],
+     "exclude": []
++  },
++  "embed": {
++    "files": [
++      "src/ant.c",
++      "src/base64.c",
++      "src/builder.c",
++      "src/cage.c",
++      "src/debug.c",
++      "src/descriptors.c",
++      "src/errors.c",
++      "src/error_render.c",
++      "src/exceptions.c",
++      "src/escape.c",
++      "src/handles.c",
++      "src/numbers.cc",
++      "src/output.c",
++      "src/pool.c",
++      "src/interrupt.c",
++      "src/protectors.c",
++      "src/ptr.c",
++      "src/realm.c",
++      "src/runtime.c",
++      "src/shapes.c",
++      "src/sugar.c",
++      "src/utf8.c",
++      "src/utils_portable.c",
++      "src/gc/bigints.c",
++      "src/gc/gc.c",
++      "src/gc/objects.c",
++      "src/gc/roots.c",
++      "src/gc/ropes.c",
++      "src/gc/strings.c",
++      "src/gc/weak.c",
++      "src/silver/ast.c",
++      "src/silver/call.c",
++      "src/silver/code_unit.c",
++      "src/silver/compile_ctx.c",
++      "src/silver/compiler.c",
++      "src/silver/directives.c",
++      "src/silver/engine.c",
++      "src/silver/eval_env.c",
++      "src/silver/glue.c",
++      "src/silver/lexer.c",
++      "src/silver/limits.c",
++      "src/silver/stack_trace.c",
++      "src/modules/bigint.c",
++      "src/modules/collections.c",
++      "src/modules/generator.c",
++      "src/modules/io.c",
++      "src/modules/json.c",
++      "src/modules/iterator.c",
++      "src/modules/math.c",
++      "src/modules/regex.c",
++      "src/modules/symbol.c",
++      "src/embed/stubs.c",
++      "src/embed/jit_stub.c",
++      "src/embed/utils.c"
++    ],
++    "exclude": []
+   }
+ }
+diff --git a/packages/wasm/src/jit_stub.c b/src/embed/jit_stub.c
+similarity index 100%
+rename from packages/wasm/src/jit_stub.c
+rename to src/embed/jit_stub.c
+diff --git a/packages/wasm/src/stubs.c b/src/embed/stubs.c
+similarity index 67%
+rename from packages/wasm/src/stubs.c
+rename to src/embed/stubs.c
+index 012d9b60..9ff883f6 100644
+--- a/packages/wasm/src/stubs.c
++++ b/src/embed/stubs.c
+@@ -14,38 +14,38 @@
+ #include "modules/process.h"
+ #include "sugar.h"
+ #include "silver/call.h"
+-#include "wasm_embed.h"
++#include "embed.h"
+ 
+ #include <stdint.h>
+ #include <stdlib.h>
+ #include <string.h>
+ 
+ // TODO: cleanup
+-#define ANT_WASM_GC_STUB(name) void name(ant_t *js, gc_mark_fn mark) { (void)js; (void)mark; }
+-
+-ANT_WASM_GC_STUB(gc_mark_cron)
+-ANT_WASM_GC_STUB(gc_mark_atomics)
+-ANT_WASM_GC_STUB(gc_mark_fetch)
+-ANT_WASM_GC_STUB(gc_mark_fs)
+-ANT_WASM_GC_STUB(gc_mark_child_process)
+-ANT_WASM_GC_STUB(gc_mark_readline)
+-ANT_WASM_GC_STUB(gc_mark_process)
+-ANT_WASM_GC_STUB(gc_mark_navigator)
+-ANT_WASM_GC_STUB(gc_mark_net)
+-ANT_WASM_GC_STUB(gc_mark_tls)
+-ANT_WASM_GC_STUB(gc_mark_server)
+-ANT_WASM_GC_STUB(gc_mark_websocket)
+-ANT_WASM_GC_STUB(gc_mark_eventsource)
+-ANT_WASM_GC_STUB(gc_mark_events)
+-ANT_WASM_GC_STUB(gc_mark_lmdb)
+-ANT_WASM_GC_STUB(gc_mark_esm)
+-ANT_WASM_GC_STUB(gc_mark_worker_threads)
+-ANT_WASM_GC_STUB(gc_mark_abort)
+-ANT_WASM_GC_STUB(gc_mark_zlib)
+-ANT_WASM_GC_STUB(gc_mark_wasm)
+-ANT_WASM_GC_STUB(gc_mark_napi)
+-ANT_WASM_GC_STUB(gc_mark_rpc)
+-ANT_WASM_GC_STUB(gc_mark_sandbox)
++#define ANT_EMBED_GC_STUB(name) void name(ant_t *js, gc_mark_fn mark) { (void)js; (void)mark; }
++
++ANT_EMBED_GC_STUB(gc_mark_cron)
++ANT_EMBED_GC_STUB(gc_mark_atomics)
++ANT_EMBED_GC_STUB(gc_mark_fetch)
++ANT_EMBED_GC_STUB(gc_mark_fs)
++ANT_EMBED_GC_STUB(gc_mark_child_process)
++ANT_EMBED_GC_STUB(gc_mark_readline)
++ANT_EMBED_GC_STUB(gc_mark_process)
++ANT_EMBED_GC_STUB(gc_mark_navigator)
++ANT_EMBED_GC_STUB(gc_mark_net)
++ANT_EMBED_GC_STUB(gc_mark_tls)
++ANT_EMBED_GC_STUB(gc_mark_server)
++ANT_EMBED_GC_STUB(gc_mark_websocket)
++ANT_EMBED_GC_STUB(gc_mark_eventsource)
++ANT_EMBED_GC_STUB(gc_mark_events)
++ANT_EMBED_GC_STUB(gc_mark_lmdb)
++ANT_EMBED_GC_STUB(gc_mark_esm)
++ANT_EMBED_GC_STUB(gc_mark_worker_threads)
++ANT_EMBED_GC_STUB(gc_mark_abort)
++ANT_EMBED_GC_STUB(gc_mark_zlib)
++ANT_EMBED_GC_STUB(gc_mark_wasm)
++ANT_EMBED_GC_STUB(gc_mark_napi)
++ANT_EMBED_GC_STUB(gc_mark_rpc)
++ANT_EMBED_GC_STUB(gc_mark_sandbox)
+ 
+ void gc_clear_napi_weak_refs(ant_t *js, bool minor) {
+   (void)js;
+@@ -157,38 +157,38 @@ blob_data_t *blob_get_data(ant_value_t obj) {
+ }
+ 
+ enum {
+-  ANT_WASM_MICROTASK_CALLBACK,
+-  ANT_WASM_MICROTASK_PROMISE_TRIGGER,
+-  ANT_WASM_MICROTASK_THENABLE,
+-  ANT_WASM_MICROTASK_AWAIT,
++  EMBED_MICROTASK_CALLBACK,
++  EMBED_MICROTASK_PROMISE_TRIGGER,
++  EMBED_MICROTASK_THENABLE,
++  EMBED_MICROTASK_AWAIT,
+ };
+ 
+-typedef struct ant_wasm_microtask {
++typedef struct embed_microtask {
+   ant_value_t callback;
+   union {
+     ant_value_t promise;
+     ant_value_t this_value;
+     coroutine_t *coroutine;
+   } target;
+-  struct ant_wasm_microtask *next;
++  struct embed_microtask *next;
+   uint8_t argument_count;
+   uint8_t kind;
+   ant_value_t arguments[];
+-} ant_wasm_microtask_t;
++} embed_microtask_t;
+ 
+ static struct {
+   ant_t *js;
+-  ant_wasm_microtask_t *head;
+-  ant_wasm_microtask_t *tail;
+-  ant_wasm_microtask_t *processing;
+-} ant_wasm_microtasks;
++  embed_microtask_t *head;
++  embed_microtask_t *tail;
++  embed_microtask_t *processing;
++} embed_microtasks;
+ 
+-static void ant_wasm_microtask_discard(
+-  ant_t *js, ant_wasm_microtask_t *task
++static void embed_microtask_discard(
++  ant_t *js, embed_microtask_t *task
+ ) {
+-  if (task->kind == ANT_WASM_MICROTASK_PROMISE_TRIGGER)
++  if (task->kind == EMBED_MICROTASK_PROMISE_TRIGGER)
+     js_mark_promise_trigger_dequeued(js, task->target.promise);
+-  else if (task->kind == ANT_WASM_MICROTASK_AWAIT) {
++  else if (task->kind == EMBED_MICROTASK_AWAIT) {
+     coroutine_clear_await_registration(task->target.coroutine);
+     coroutine_release(task->target.coroutine);
+   }
+@@ -196,40 +196,40 @@ static void ant_wasm_microtask_discard(
+ }
+ 
+ void ant_embed_microtasks_reset(ant_t *js) {
+-  ant_wasm_microtask_t *task = ant_wasm_microtasks.processing;
++  embed_microtask_t *task = embed_microtasks.processing;
+   while (task) {
+-    ant_wasm_microtask_t *next = task->next;
+-    ant_wasm_microtask_discard(js, task);
++    embed_microtask_t *next = task->next;
++    embed_microtask_discard(js, task);
+     task = next;
+   }
+-  task = ant_wasm_microtasks.head;
++  task = embed_microtasks.head;
+   while (task) {
+-    ant_wasm_microtask_t *next = task->next;
+-    ant_wasm_microtask_discard(js, task);
++    embed_microtask_t *next = task->next;
++    embed_microtask_discard(js, task);
+     task = next;
+   }
+-  memset(&ant_wasm_microtasks, 0, sizeof(ant_wasm_microtasks));
++  memset(&embed_microtasks, 0, sizeof(embed_microtasks));
+ }
+ 
+-static void ant_wasm_microtask_append(
+-  ant_t *js, ant_wasm_microtask_t *task
++static void embed_microtask_append(
++  ant_t *js, embed_microtask_t *task
+ ) {
+-  if (ant_wasm_microtasks.js && ant_wasm_microtasks.js != js)
+-    ant_embed_microtasks_reset(ant_wasm_microtasks.js);
+-  ant_wasm_microtasks.js = js;
+-  if (ant_wasm_microtasks.tail)
+-    ant_wasm_microtasks.tail->next = task;
++  if (embed_microtasks.js && embed_microtasks.js != js)
++    ant_embed_microtasks_reset(embed_microtasks.js);
++  embed_microtasks.js = js;
++  if (embed_microtasks.tail)
++    embed_microtasks.tail->next = task;
+   else
+-    ant_wasm_microtasks.head = task;
+-  ant_wasm_microtasks.tail = task;
++    embed_microtasks.head = task;
++  embed_microtasks.tail = task;
+ }
+ 
+ void queue_microtask(ant_t *js, ant_value_t callback) {
+-  ant_wasm_microtask_t *task = calloc(1, sizeof(*task));
++  embed_microtask_t *task = calloc(1, sizeof(*task));
+   if (!task) return;
+   task->callback = callback;
+   task->target.promise = js_mkundef();
+-  ant_wasm_microtask_append(js, task);
++  embed_microtask_append(js, task);
+ }
+ 
+ void queue_microtask_with_args(
+@@ -240,7 +240,7 @@ void queue_microtask_with_args(
+     return;
+   }
+   if (nargs > UINT8_MAX) return;
+-  ant_wasm_microtask_t *task = calloc(
++  embed_microtask_t *task = calloc(
+     1, sizeof(*task) + (size_t)nargs * sizeof(*task->arguments)
+   );
+   if (!task) return;
+@@ -248,54 +248,54 @@ void queue_microtask_with_args(
+   task->target.promise = js_mkundef();
+   task->argument_count = (uint8_t)nargs;
+   memcpy(task->arguments, args, (size_t)nargs * sizeof(*args));
+-  ant_wasm_microtask_append(js, task);
++  embed_microtask_append(js, task);
+ }
+ 
+ void queue_promise_trigger(ant_t *js, ant_value_t promise) {
+   if (!js_mark_promise_trigger_queued(js, promise)) return;
+-  ant_wasm_microtask_t *task = calloc(1, sizeof(*task));
++  embed_microtask_t *task = calloc(1, sizeof(*task));
+   if (!task) {
+     js_mark_promise_trigger_dequeued(js, promise);
+     return;
+   }
+   task->callback = js_mkundef();
+   task->target.promise = promise;
+-  task->kind = ANT_WASM_MICROTASK_PROMISE_TRIGGER;
+-  ant_wasm_microtask_append(js, task);
++  task->kind = EMBED_MICROTASK_PROMISE_TRIGGER;
++  embed_microtask_append(js, task);
+ }
+ 
+ bool queue_promise_thenable_job(
+   ant_t *js, ant_value_t promise, ant_value_t thenable, ant_value_t then_fn
+ ) {
+-  ant_wasm_microtask_t *task = calloc(
++  embed_microtask_t *task = calloc(
+     1, sizeof(*task) + sizeof(*task->arguments)
+   );
+   if (!task) return false;
+   task->callback = then_fn;
+   task->target.this_value = thenable;
+   task->argument_count = 1;
+-  task->kind = ANT_WASM_MICROTASK_THENABLE;
++  task->kind = EMBED_MICROTASK_THENABLE;
+   task->arguments[0] = promise;
+-  ant_wasm_microtask_append(js, task);
++  embed_microtask_append(js, task);
+   return true;
+ }
+ 
+ bool queue_await_resume_job(coroutine_t *coro, ant_value_t value) {
+   if (!coro || !coro->js) return false;
+-  ant_wasm_microtask_t *task = calloc(1, sizeof(*task));
++  embed_microtask_t *task = calloc(1, sizeof(*task));
+   if (!task) return false;
+   task->callback = value;
+   task->target.coroutine = coro;
+-  task->kind = ANT_WASM_MICROTASK_AWAIT;
++  task->kind = EMBED_MICROTASK_AWAIT;
+   coroutine_retain(coro);
+-  ant_wasm_microtask_append(coro->js, task);
++  embed_microtask_append(coro->js, task);
+   return true;
+ }
+ 
+-static void ant_wasm_process_microtask(
+-  ant_t *js, ant_wasm_microtask_t *task
++static void embed_process_microtask(
++  ant_t *js, embed_microtask_t *task
+ ) {
+-  if (task->kind == ANT_WASM_MICROTASK_PROMISE_TRIGGER) {
++  if (task->kind == EMBED_MICROTASK_PROMISE_TRIGGER) {
+     GC_ROOT_SAVE(root_mark, js);
+     ant_value_t promise = task->target.promise;
+     GC_ROOT_PIN(js, promise);
+@@ -305,14 +305,14 @@ static void ant_wasm_process_microtask(
+     return;
+   }
+ 
+-  if (task->kind == ANT_WASM_MICROTASK_THENABLE) {
++  if (task->kind == EMBED_MICROTASK_THENABLE) {
+     js_process_promise_thenable_job(
+       js, task->arguments[0], task->target.this_value, task->callback
+     );
+     return;
+   }
+ 
+-  if (task->kind == ANT_WASM_MICROTASK_AWAIT) {
++  if (task->kind == EMBED_MICROTASK_AWAIT) {
+     GC_ROOT_SAVE(root_mark, js);
+     ant_value_t value = task->callback;
+     coroutine_t *coro = task->target.coroutine;
+@@ -336,28 +336,28 @@ static void ant_wasm_process_microtask(
+   GC_ROOT_RESTORE(js, root_mark);
+ }
+ 
+-static bool ant_wasm_drain_microtasks(
++static bool embed_drain_microtasks(
+   ant_t *js, bool check_rejections, bool require_job_boundary
+ ) {
+   if (!js || js->microtasks_draining ||
+       (require_job_boundary && js->vm_exec_depth != 0) ||
+-      ant_wasm_microtasks.head == NULL)
++      embed_microtasks.head == NULL)
+     return false;
+ 
+   bool at_job_boundary = js->vm_exec_depth == 0;
+   bool interrupted = false;
+   js->microtasks_draining = true;
+-  while (ant_wasm_microtasks.head) {
+-    ant_wasm_microtask_t *batch = ant_wasm_microtasks.head;
+-    ant_wasm_microtasks.head = NULL;
+-    ant_wasm_microtasks.tail = NULL;
+-    ant_wasm_microtasks.processing = batch;
++  while (embed_microtasks.head) {
++    embed_microtask_t *batch = embed_microtasks.head;
++    embed_microtasks.head = NULL;
++    embed_microtasks.tail = NULL;
++    embed_microtasks.processing = batch;
+ 
+     while (batch) {
+-      ant_wasm_microtask_t *task = batch;
++      embed_microtask_t *task = batch;
+       batch = task->next;
+-      ant_wasm_microtasks.processing = batch;
+-      ant_wasm_process_microtask(js, task);
++      embed_microtasks.processing = batch;
++      embed_process_microtask(js, task);
+       free(task);
+       if (ant_embed_should_interrupt(js)) {
+         interrupted = true;
+@@ -368,7 +368,7 @@ static bool ant_wasm_drain_microtasks(
+     if (interrupted) break;
+   }
+ 
+-  ant_wasm_microtasks.processing = NULL;
++  embed_microtasks.processing = NULL;
+   if (check_rejections && !interrupted) js_check_unhandled_rejections(js);
+   js->microtasks_draining = false;
+   if (at_job_boundary) gc_weak_clear_kept_alive(js);
+@@ -376,35 +376,35 @@ static bool ant_wasm_drain_microtasks(
+ }
+ 
+ void process_microtasks(ant_t *js) {
+-  ant_wasm_drain_microtasks(js, true, false);
++  embed_drain_microtasks(js, true, false);
+ }
+ 
+ bool js_maybe_drain_microtasks(ant_t *js) {
+-  return ant_wasm_drain_microtasks(js, true, true);
++  return embed_drain_microtasks(js, true, true);
+ }
+ 
+ bool js_maybe_drain_microtasks_after_async_settle(ant_t *js) {
+-  return ant_wasm_drain_microtasks(js, false, false);
++  return embed_drain_microtasks(js, false, false);
+ }
+ 
+ int has_pending_microtasks(ant_t *js) {
+   (void)js;
+-  return ant_wasm_microtasks.head != NULL;
++  return embed_microtasks.head != NULL;
+ }
+ 
+ void cleanup_timer_module(ant_t *js) { (void)js; }
+ 
+ void gc_mark_timers(ant_t *js, gc_mark_fn mark) {
+-  ant_wasm_microtask_t *lists[] = {
+-    ant_wasm_microtasks.head,
+-    ant_wasm_microtasks.processing,
++  embed_microtask_t *lists[] = {
++    embed_microtasks.head,
++    embed_microtasks.processing,
+   };
+   for (size_t list = 0; list < sizeof(lists) / sizeof(lists[0]); list++) {
+-    for (ant_wasm_microtask_t *task = lists[list]; task; task = task->next) {
++    for (embed_microtask_t *task = lists[list]; task; task = task->next) {
+       mark(js, task->callback);
+-      if (task->kind == ANT_WASM_MICROTASK_AWAIT)
++      if (task->kind == EMBED_MICROTASK_AWAIT)
+         gc_mark_coroutine(js, task->target.coroutine);
+-      else if (task->kind == ANT_WASM_MICROTASK_THENABLE)
++      else if (task->kind == EMBED_MICROTASK_THENABLE)
+         mark(js, task->target.this_value);
+       else
+         mark(js, task->target.promise);
+@@ -434,7 +434,7 @@ void js_fire_rejection_handled(
+ ant_value_t js_esm_import_sync(ant_t *js, ant_value_t specifier) {
+   (void)specifier;
+   return js_mkerr_typed(
+-    js, JS_ERR_TYPE, "module imports are not available in @antjs.org/wasm"
++    js, JS_ERR_TYPE, "module imports are not available in this embed build"
+   );
+ }
+ 
+@@ -447,7 +447,7 @@ ant_value_t js_esm_import_dynamic_ex(
+   (void)attrs;
+   *out_tla_promise = js_mkundef();
+   return js_mkerr_typed(
+-    js, JS_ERR_TYPE, "module imports are not available in @antjs.org/wasm"
++    js, JS_ERR_TYPE, "module imports are not available in this embed build"
+   );
+ }
+ 
+diff --git a/packages/wasm/src/utils.c b/src/embed/utils.c
+similarity index 98%
+rename from packages/wasm/src/utils.c
+rename to src/embed/utils.c
+index caa23d6d..f5292d04 100644
+--- a/packages/wasm/src/utils.c
++++ b/src/embed/utils.c
+@@ -47,7 +47,7 @@ int strip_typescript_inplace(
+ ) {
+   (void)buffer; (void)filename;
+   if (out_len) *out_len = len;
+-  if (error_detail) *error_detail = "TypeScript is not available in @antjs.org/wasm";
++  if (error_detail) *error_detail = "TypeScript is not available in this embed build";
+   return -1;
+ }
+ 

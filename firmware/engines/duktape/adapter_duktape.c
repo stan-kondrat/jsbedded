@@ -57,14 +57,14 @@ int jsb_duk_native_stack_check(void)
 }
 
 /* Fatal errors (uncaught outside a protected call, out of memory in the
-   middle of an operation, assertions). Duktape requires that this does not return. */
+   middle of an operation, assertions). Duktape requires that this does not return:
+   a crash record is saved (CRASH.TXT) and the board restarts. */
 void jsb_duk_fatal(void *udata, const char *msg)
 {
     (void)udata;
-    console_print("JSBedded: Duktape fatal error: ");
-    console_print(msg != NULL ? msg : "(no message)");
-    console_print("\r\n");
-    abort();
+    char buf[96];
+    snprintf(buf, sizeof buf, "Duktape: %s", msg != NULL ? msg : "(no message)");
+    jsb_hal_fatal(buf, NULL, 0);
 }
 
 /*

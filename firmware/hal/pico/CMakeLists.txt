@@ -21,6 +21,7 @@ add_executable(jsbedded
     hal_pico.c
     flash_disk.c
     devmode.c
+    crash.c
     usb_drive.c
 )
 jsb_apply_engine_options()
@@ -42,6 +43,7 @@ target_link_libraries(jsbedded pico_stdlib pico_unique_id hardware_flash tinyusb
 
 pico_set_program_name(jsbedded "JSBedded")
 pico_set_program_version(jsbedded "${JSB_VERSION}")
+target_link_options(jsbedded PRIVATE -Wl,--wrap=_malloc_r) # TEMP-TRACE
 pico_enable_stdio_usb(jsbedded 1)
 pico_enable_stdio_uart(jsbedded 1)
 pico_add_extra_outputs(jsbedded)

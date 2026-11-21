@@ -1,10 +1,105 @@
 /*
  * HAL on the Pico SDK (RP2040, RP2350). Console: USB serial and UART0.
- * Also here: the script drive (flash_disk.c, usb_drive.c) and dev mode (devmode.c).
+ * Also here: the script drive (flash_disk.c, usb_drive.c), dev mode (devmode.c)
+ * and the crash record (crash.c).
  */
 #include <stdio.h>
 
 #include "pico/stdlib.h"
+
+/*
+ * The main stack is the 8 KB of scratch RAM at the top of the address space;
+ * below it a deeper stack would run into the heap. JSB_PICO_STACK_RESERVE
+ * (bytes, set by engines that need a deeper stack) keeps that much main RAM
+ * free for it: the heap stops short of it. Replaces the SDK's weak _sbrk.
+ */
+#ifndef JSB_PICO_STACK_RESERVE
+#define JSB_PICO_STACK_RESERVE 0
+#endif
+
+void *_sbrk(int incr)
+{
+    extern char end, __StackLimit;
+    static char *heap_end;
+    char *limit = &__StackLimit - JSB_PICO_STACK_RESERVE;
+    if (heap_end == NULL) {
+        heap_end = &end;
+    }
+    if (incr > limit - heap_end) {
+        printf("trace: sbrk FAILED incr=%d heap_end=%08lx limit=%08lx\r\n", incr, /* TEMP-TRACE */
+               (unsigned long)(uintptr_t)heap_end, (unsigned long)(uintptr_t)limit); /* TEMP-TRACE */
+        return (void *)-1;
+    }
+    char *prev = heap_end;
+    heap_end += incr;
+    return prev;
+}
+
+/* TEMP-TRACE begin */
+#include <malloc.h>
+#include "pico/stdio_usb.h"
+#include "hardware/watchdog.h"
+#include "hardware/structs/watchdog.h"
+#include "jsb/hal.h"
+
+#define TRACE_STACK_LO (0x20040000u - JSB_PICO_STACK_RESERVE)
+#define TRACE_PAINT 0x5AA5C33Cu
+
+static unsigned trace_stack_max(void)
+{
+    uint32_t *w = (uint32_t *)TRACE_STACK_LO;
+    while ((uintptr_t)w < 0x20042000u && *w == TRACE_PAINT) {
+        w++;
+    }
+    return 0x20042000u - (unsigned)(uintptr_t)w;
+}
+
+void jsb_trace(const char *what)
+{
+    volatile char here;
+    jsb_hal_crash_step(what);
+    struct mallinfo mi = mallinfo();
+    printf("trace: %-22s sp=%08lx stack_max=%u heap_arena=%u heap_used=%u\r\n", what,
+           (unsigned long)(uintptr_t)&here, trace_stack_max(), (unsigned)mi.arena, (unsigned)mi.uordblks);
+    stdio_flush();
+    sleep_ms(50);
+}
+
+struct _reent;
+void *__real__malloc_r(struct _reent *r, size_t size);
+void *__wrap__malloc_r(struct _reent *r, size_t size)
+{
+    static bool busy;
+    void *p = __real__malloc_r(r, size);
+    if (size >= 1024 && !busy) {
+        busy = true;
+        printf("trace: alloc %u -> %08lx (from %08lx)\r\n", (unsigned)size, (unsigned long)(uintptr_t)p,
+               (unsigned long)(uintptr_t)__builtin_return_address(0));
+        busy = false;
+    }
+    return p;
+}
+
+static void trace_start(void)
+{
+    volatile char here;
+    for (uint32_t *w = (uint32_t *)TRACE_STACK_LO; (uintptr_t)w < (uintptr_t)&here - 128; w++) {
+        *w = TRACE_PAINT;
+    }
+    uint32_t fsp = watchdog_hw->scratch[1], fpc = watchdog_hw->scratch[2], flr = watchdog_hw->scratch[3];
+    watchdog_hw->scratch[1] = watchdog_hw->scratch[2] = watchdog_hw->scratch[3] = 0;
+    for (int i = 0; i < 200 && !stdio_usb_connected(); i++) {
+        sleep_ms(100);
+    }
+    sleep_ms(300);
+    printf("\r\ntrace: diagnostic build, waiting done (connected=%d)\r\n", (int)stdio_usb_connected());
+    if ((fsp >> 24) == 0x20) {
+        printf("trace: PREVIOUS BOOT HARD FAULT: pc=%08lx lr=%08lx sp=%08lx\r\n", (unsigned long)fpc,
+               (unsigned long)flr, (unsigned long)fsp);
+    }
+    jsb_trace("hal init");
+}
+/* TEMP-TRACE end */
 
 #include "jsb/core.h"
 #include "jsb/hal.h"
@@ -14,6 +109,8 @@ void jsb_hal_init(void)
 {
     jsb_pico_devmode_init();
     stdio_init_all();
+    jsb_hal_image_id(); /* computed now: a crash record needs it, and a fault can't wait for it */
+    trace_start(); /* TEMP-TRACE */
 
     uint32_t firmware_kb, drive_kb;
     if (!jsb_pico_drive_check(&firmware_kb, &drive_kb) && drive_kb > 0) {

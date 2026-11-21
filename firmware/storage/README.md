@@ -9,7 +9,7 @@ Built only where the platform implements the drive (`JSB_STORAGE` in
 | File | Role |
 |---|---|
 | [`include/jsb/storage.h`](include/jsb/storage.h) | mount / format, load the script, unmount |
-| `drive.c` | FatFs calls: format on first boot, script lookup, read into RAM |
+| `drive.c` | FatFs calls: format on first boot, script lookup, read into RAM, `[firmware]` section, `CRASH.TXT` |
 | `config.c`, [`include/jsb/config.h`](include/jsb/config.h) | `config.ini` parser (pure C) and the default file |
 | `diskio.c` | FatFs disk layer on `jsb_hal_disk_*` (512-byte sectors) |
 | `ffconf.h` | FatFs configuration (upstream R0.16 file, changes listed at the top) |
@@ -22,6 +22,15 @@ FatFs itself is [`third_party/fatfs`](../../third_party/fatfs), vendored unmodif
    or the PC formatted it as exFAT), it is formatted: FAT12/16 without a
    partition table, 4 KB clusters aligned to the 4 KB flash erase blocks, label
    `JSBEDDED`.
+   In dev mode or after a format, missing `config.ini` and `README.txt` are
+   created; then `config.ini`'s `[firmware]` section (version, board, engine,
+   engine version, `image_id` from `jsb_hal_image_id()`) is rewritten if it is
+   missing or out of date. A rewrite means this is the first boot of a new
+   image; core passes that on to the crash record.
+   If the previous boot crashed (`jsb_hal_crash_take()`), `config.ini` is read
+   for `on_crash` and `jsb_storage_write_text()` writes the report to
+   `CRASH.TXT` (text from `core/src/crash.c`; see
+   [recovery](../../docs/guide/recovery.md#crash-report-pico-family)).
 2. `jsb_storage_load_script()` reads the first of `main.js`, `index.js`,
    `main.mjs`, `index.mjs` into RAM (at most 64 KB, `JSB_STORAGE_SCRIPT_MAX`). With none of
    them the built-in boot script runs; with one that can't be read, nothing runs.

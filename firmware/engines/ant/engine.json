@@ -2,10 +2,12 @@
   "name": "ant",
   "upstream": "https://github.com/theMackabu/ant",
   "submodules": ["third_party/ant"],
-  "unsupported_boards": ["pico", "pico_w", "pico2", "pico2_w", "esp32s3_devkitc", "esp32c3_devkitm"],
+  "unsupported_boards": ["pico_w", "pico2", "pico2_w", "esp32s3_devkitc", "esp32c3_devkitm"],
   "language": null,
   "min_flash_kb": null,
   "min_ram_kb": null,
   "license": "MIT",
-  "features": {}
+  "features": {
+    "host_functions": true
+  }
 }

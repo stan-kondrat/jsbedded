@@ -1,0 +1,83 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: JSBedded <noreply@jsbedded.invalid>
+Date: Sat, 21 Nov 2026 00:00:00 +0000
+Subject: [PATCH 4/9] Make the embed VM stack and C stack sizes configurable
+
+Not sent upstream yet (upstream ask 3 in JSBedded's
+firmware/engines/ant/README.md).
+
+sv_vm_reserve_storage() calloc's SV_STACK_HARD_MAX values,
+SV_FRAMES_HARD_MAX frames and a 64 KB guard up front: more than 1 MB
+under the embed profile, which also assumes a 1 MB C stack.
+
+- ANT_EMBED_VM_STACK_SLOTS and ANT_EMBED_VM_FRAMES set the two VM
+  limits, ANT_EMBED_VM_GUARD_SIZE the guard (only padding without
+  mprotect), and ANT_EMBED_C_STACK_SIZE the C stack the interpreter
+  assumes. The defaults are the old values.
+---
+ include/silver/engine.h | 11 +++++++++--
+ src/silver/engine.c     |  8 ++++++++
+ src/silver/limits.c     |  6 +++++-
+ 3 files changed, 22 insertions(+), 3 deletions(-)
+
+diff --git a/include/silver/engine.h b/include/silver/engine.h
+index 38efbe36..590aa187 100644
+--- a/include/silver/engine.h
++++ b/include/silver/engine.h
+@@ -1037,8 +1037,15 @@ typedef struct {
+ #define SV_HANDLER_HARD_MAX UINT16_MAX
+ 
+ #ifdef ANT_EMBED
+-#define SV_FRAMES_HARD_MAX 16384
+-#define SV_STACK_HARD_MAX  131072
++// Reserved in full when a VM is created; small targets override both.
++#ifndef ANT_EMBED_VM_FRAMES
++#define ANT_EMBED_VM_FRAMES 16384
++#endif
++#ifndef ANT_EMBED_VM_STACK_SLOTS
++#define ANT_EMBED_VM_STACK_SLOTS 131072
++#endif
++#define SV_FRAMES_HARD_MAX ANT_EMBED_VM_FRAMES
++#define SV_STACK_HARD_MAX  ANT_EMBED_VM_STACK_SLOTS
+ #else
+ #define SV_FRAMES_HARD_MAX 65536
+ #define SV_STACK_HARD_MAX  524288
+diff --git a/src/silver/engine.c b/src/silver/engine.c
+index 503137a6..2332d48f 100644
+--- a/src/silver/engine.c
++++ b/src/silver/engine.c
+@@ -46,7 +46,15 @@
+ #include "embed.h"
+ #endif
+ 
++#ifdef ANT_EMBED
++// No mprotect in the embed profile, so the guard is only padding.
++#ifndef ANT_EMBED_VM_GUARD_SIZE
++#define ANT_EMBED_VM_GUARD_SIZE 65536u
++#endif
++static constexpr size_t SV_VM_GUARD_SIZE = ANT_EMBED_VM_GUARD_SIZE;
++#else
+ static constexpr size_t SV_VM_GUARD_SIZE = 65536;
++#endif
+ static constexpr size_t SV_STACK_RESERVE = (size_t)SV_STACK_HARD_MAX * sizeof(ant_value_t);
+ static constexpr size_t SV_FRAMES_RESERVE = (size_t)SV_FRAMES_HARD_MAX * sizeof(sv_frame_t);
+ static constexpr size_t SV_VM_RESERVE = SV_STACK_RESERVE + SV_VM_GUARD_SIZE + SV_FRAMES_RESERVE;
+diff --git a/src/silver/limits.c b/src/silver/limits.c
+index 4d0ea052..7be1a1d1 100644
+--- a/src/silver/limits.c
++++ b/src/silver/limits.c
+@@ -25,9 +25,13 @@
+ 
+ int sv_user_stack_size_kb = 0;
+ 
++#if defined(ANT_EMBED) && !defined(ANT_EMBED_C_STACK_SIZE)
++#define ANT_EMBED_C_STACK_SIZE (1024u * 1024u)
++#endif
++
+ size_t os_thread_stack_size(void) {
+ #ifdef ANT_EMBED
+-  return 1024 * 1024;
++  return ANT_EMBED_C_STACK_SIZE;
+ #elif defined(_WIN32)
+   ULONG_PTR low, high;
+   GetCurrentThreadStackLimits(&low, &high);

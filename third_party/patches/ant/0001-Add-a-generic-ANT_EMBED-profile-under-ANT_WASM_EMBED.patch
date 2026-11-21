@@ -1,0 +1,971 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: JSBedded <noreply@jsbedded.invalid>
+Date: Sat, 21 Nov 2026 00:00:00 +0000
+Subject: [PATCH 1/9] Add a generic ANT_EMBED profile under ANT_WASM_EMBED
+
+Not sent upstream yet (upstream ask 1 in JSBedded's
+firmware/engines/ant/README.md).
+
+The interpreter-only build is tied to WebAssembly: wasm_embed.h stops
+any other target with #error, and its host hooks are Wasm imports.
+Microcontroller embedders need the same OS-free code paths.
+
+- ANT_EMBED selects the OS-free paths that ANT_WASM_EMBED used to
+  select (no mmap, libuv, tlsuv, argtable3, inspector or pthreads in
+  the core). ANT_WASM_EMBED now requires ANT_EMBED and adds only the
+  Wasm imports and exports.
+- include/embed.h declares the hooks an embedder provides:
+  ant_embed_now_ms, ant_embed_random_fill, ant_embed_should_interrupt
+  and ant_embed_fatal (what a failed ANT_ASSERT does).
+- js->wasm_interrupt_* become js->embed_interrupt_*, and
+  ant_wasm_microtasks_reset becomes ant_embed_microtasks_reset.
+- The Wasm reactor implements the hooks in packages/wasm/src/platform.c
+  and builds with -DANT_EMBED=1 -DANT_WASM_EMBED=1. Its behaviour does
+  not change.
+---
+ include/ant.h                |  8 +++++++
+ include/arena.h              | 10 ++++----
+ include/cage.h               |  8 +++----
+ include/embed.h              | 45 ++++++++++++++++++++++++++++++++++++
+ include/gc/objects.h         |  8 +++----
+ include/isolate.h            |  6 ++---
+ include/jit/entry_stub.h     |  2 +-
+ include/pool.h               |  4 ++--
+ include/silver/engine.h      |  6 ++---
+ include/wasm_embed.h         |  9 +++++---
+ packages/wasm/meson.build    |  2 ++
+ packages/wasm/src/bridge.c   | 22 +++++++++---------
+ packages/wasm/src/platform.c | 19 +++++++++++++++
+ packages/wasm/src/stubs.c    | 11 ++++-----
+ src/ant.c                    |  6 ++---
+ src/cage.c                   | 10 ++++----
+ src/error_render.c           | 12 +++++-----
+ src/gc/arena.c               |  4 ++--
+ src/gc/gc.c                  |  4 ++--
+ src/gc/objects.c             |  6 ++---
+ src/modules/io.c             | 26 ++++++++++-----------
+ src/pool.c                   |  2 +-
+ src/runtime.c                |  6 ++---
+ src/silver/engine.c          | 20 ++++++++--------
+ src/silver/limits.c          |  6 ++---
+ src/silver/ops/property.h    |  2 +-
+ 26 files changed, 170 insertions(+), 94 deletions(-)
+ create mode 100644 include/embed.h
+ create mode 100644 packages/wasm/src/platform.c
+
+diff --git a/include/ant.h b/include/ant.h
+index 4353f3b3..bc101dd8 100644
+--- a/include/ant.h
++++ b/include/ant.h
+@@ -19,11 +19,19 @@ static constexpr uint8_t CFUNC_IS_CONSTRUCTOR = 0x02u;
+ static constexpr uint8_t CFUNC_NATIVE_GETTER  = 0x04u;
+ static constexpr uint8_t CFUNC_REALM_FREE     = 0x08u;
+ 
++#ifdef ANT_EMBED
++// Embedders decide what a failed internal assertion does (see embed.h).
++_Noreturn void ant_embed_fatal(const char *msg, const char *file, int line);
++#define ANT_ASSERT(cond, msg) ({                                        \
++if (!(cond)) ant_embed_fatal(msg, __FILE__, __LINE__);                  \
++})
++#else
+ #define ANT_ASSERT(cond, msg) ({                                        \
+ if (!(cond)) {                                                          \
+   fprintf(stderr, "ANT FATAL: %s\n  %s:%d\n", msg, __FILE__, __LINE__); \
+   abort();                                                              \
+ }})
++#endif
+ 
+ #define ANT_STRING(s)         js_mkstr(js, s, sizeof(s) - 1)
+ #define ANT_COPY(buf, len, s) cpy(buf, len, s, sizeof(s) - 1)
+diff --git a/include/arena.h b/include/arena.h
+index 69173ac4..23f0b4d2 100644
+--- a/include/arena.h
++++ b/include/arena.h
+@@ -11,7 +11,7 @@
+ #ifdef _WIN32
+ #define WIN32_LEAN_AND_MEAN
+ #include <windows.h>
+-#elif !defined(ANT_WASM_EMBED)
++#elif !defined(ANT_EMBED)
+ #include <sys/mman.h>
+ #include <unistd.h>
+ #include <errno.h>
+@@ -44,7 +44,7 @@ typedef struct ant_fixed_arena {
+   uint32_t id;
+ } ant_fixed_arena_t;
+ 
+-#ifdef ANT_WASM_EMBED
++#ifdef ANT_EMBED
+ static constexpr unsigned ANT_ARENA_CHUNK_SHIFT = 20;
+ static constexpr size_t ANT_ARENA_MAX         = 8ULL * 1024 * 1024;
+ static constexpr size_t ANT_CLOSURE_ARENA_MAX = 4ULL * 1024 * 1024;
+@@ -66,7 +66,7 @@ static constexpr size_t ARENA_GROW_INCREMENT = ANT_ARENA_CHUNK_SIZE;
+ static constexpr uint32_t ANT_ARENA_MAX_CHUNKS = (uint32_t)UINT16_MAX + 1;
+ static constexpr uint32_t ANT_ARENA_PARTIAL_CHUNK = (uint32_t)1 << 31;
+ 
+-#ifndef ANT_WASM_EMBED
++#ifndef ANT_EMBED
+ static_assert(
+   ANT_ARENA_CHUNK_SIZE <= ANT_CAGE_ALIGNMENT, 
+   "arena chunks must not straddle cage-aligned table slots"
+@@ -74,7 +74,7 @@ static_assert(
+ #endif
+ 
+ static inline size_t ant_arena_page_size(void) {
+-#ifdef ANT_WASM_EMBED
++#ifdef ANT_EMBED
+   return 65536u;
+ #elif defined(_WIN32)
+   static size_t cached = 0;
+@@ -95,7 +95,7 @@ static inline size_t ant_arena_round_up_page(size_t size) {
+   return ((size + page_size - 1) / page_size) * page_size;
+ }
+ 
+-#ifdef ANT_WASM_EMBED
++#ifdef ANT_EMBED
+ 
+ static inline int ant_arena_commit(void *base, size_t old_size, size_t new_size) {
+   (void)base;
+diff --git a/include/cage.h b/include/cage.h
+index 9c84e075..3eadf40c 100644
+--- a/include/cage.h
++++ b/include/cage.h
+@@ -5,7 +5,7 @@
+ #include <stddef.h>
+ #include <stdint.h>
+ 
+-#ifdef ANT_WASM_EMBED
++#ifdef ANT_EMBED
+ static constexpr size_t ANT_CAGE_MAX_SIZE = 1UL << 30;
+ static constexpr size_t ANT_CAGE_MIN_SIZE = 1UL << 24;
+ #else
+@@ -29,7 +29,7 @@ static inline uintptr_t ant_cage_base(void) {
+ }
+ 
+ static inline bool ant_cage_contains(const void *ptr) {
+-#ifdef ANT_WASM_EMBED
++#ifdef ANT_EMBED
+   return ptr != NULL;
+ #else
+   uintptr_t value = (uintptr_t)ptr;
+@@ -40,7 +40,7 @@ static inline bool ant_cage_contains(const void *ptr) {
+ 
+ static inline uint64_t ant_cage_encode(const void *ptr) {
+   if (!ptr) return 0;
+-#ifdef ANT_WASM_EMBED
++#ifdef ANT_EMBED
+   return (uint64_t)(uintptr_t)ptr;
+ #else
+   if (!ant_cage_contains(ptr)) ant_cage_reject_pointer(ptr);
+@@ -49,7 +49,7 @@ static inline uint64_t ant_cage_encode(const void *ptr) {
+ }
+ 
+ static inline void *ant_cage_decode(uint64_t offset) {
+-#ifdef ANT_WASM_EMBED
++#ifdef ANT_EMBED
+   return (void *)(uintptr_t)offset;
+ #else
+   return offset ? (void *)(ant_cage_base_address + offset) : NULL;
+diff --git a/include/embed.h b/include/embed.h
+new file mode 100644
+index 00000000..5f8d6a50
+--- /dev/null
++++ b/include/embed.h
+@@ -0,0 +1,45 @@
++#ifndef ANT_EMBED_H
++#define ANT_EMBED_H
++
++// Embed profile: Ant without an operating system (no mmap, libuv, threads or
++// filesystem). The embedder compiles the core with -DANT_EMBED=1 and provides
++// the host hooks below. The WebAssembly reactor (-DANT_WASM_EMBED=1) is one
++// such embedder; see wasm_embed.h.
++
++#ifdef ANT_EMBED
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++
++#include "types.h"
++
++static_assert(
++  UINTPTR_MAX == UINT32_MAX,
++  "the embed profile assumes 32-bit pointers (wasm32, Cortex-M, Xtensa, RISC-V 32)"
++);
++
++// --- provided by the embedder ---
++
++// Monotonic time in milliseconds.
++double ant_embed_now_ms(void);
++
++// Fills buf with len random bytes (Math.random); returns 0, or -1 on failure.
++int ant_embed_random_fill(void *buf, size_t len);
++
++// Polled by the interpreter every 1024 dispatches while
++// js->embed_interrupt_enabled is set, and between microtasks; returning true
++// aborts the running script with a RangeError.
++bool ant_embed_should_interrupt(ant_t *js);
++
++// A failed internal assertion (ANT_ASSERT): report msg at file:line and stop.
++// Must not return.
++_Noreturn void ant_embed_fatal(const char *msg, const char *file, int line);
++
++// --- provided by Ant (src/embed/) ---
++
++// Drops every queued microtask, e.g. after an interrupt or before destroying js.
++void ant_embed_microtasks_reset(ant_t *js);
++
++#endif
++#endif
+diff --git a/include/gc/objects.h b/include/gc/objects.h
+index 6c124220..166b9b67 100644
+--- a/include/gc/objects.h
++++ b/include/gc/objects.h
+@@ -5,8 +5,8 @@
+ #include "object.h"
+ 
+ #include <time.h>
+-#ifdef ANT_WASM_EMBED
+-#include "wasm_embed.h"
++#ifdef ANT_EMBED
++#include "embed.h"
+ #endif
+ 
+ static constexpr int GC_ARRAY_STORAGE_CLASSES = 9;
+@@ -36,8 +36,8 @@ typedef struct gc_func_mark_profile {
+ } gc_func_mark_profile_t;
+ 
+ static inline uint64_t gc_now_ns(void) {
+-#ifdef ANT_WASM_EMBED
+-  return (uint64_t)(ant_wasm_now_ms() * 1000000.0);
++#ifdef ANT_EMBED
++  return (uint64_t)(ant_embed_now_ms() * 1000000.0);
+ #else
+   struct timespec ts;
+   clock_gettime(CLOCK_MONOTONIC, &ts);
+diff --git a/include/isolate.h b/include/isolate.h
+index 84a8e372..b7334332 100644
+--- a/include/isolate.h
++++ b/include/isolate.h
+@@ -555,9 +555,9 @@ struct ant_isolate_t {
+   uint32_t jit_active_depth;
+   uint32_t vm_exec_depth;
+ 
+-#ifdef ANT_WASM_EMBED
+-  uint32_t wasm_interrupt_ticks;
+-  bool wasm_interrupt_enabled;
++#ifdef ANT_EMBED
++  uint32_t embed_interrupt_ticks;
++  bool embed_interrupt_enabled;
+ #endif
+ 
+   ant_timer_state_t timers;
+diff --git a/include/jit/entry_stub.h b/include/jit/entry_stub.h
+index 71693f31..8ca60fcb 100644
+--- a/include/jit/entry_stub.h
++++ b/include/jit/entry_stub.h
+@@ -3,7 +3,7 @@
+ 
+ #include "silver/engine.h"
+ 
+-#if (defined(__aarch64__) || defined(__x86_64__)) && !defined(_WIN32) && !defined(ANT_WASM_EMBED)
++#if (defined(__aarch64__) || defined(__x86_64__)) && !defined(_WIN32) && !defined(ANT_EMBED)
+ #define ANT_JIT_ENTER_STUB 1
+ 
+ ant_value_t ant_jit_enter_clean(
+diff --git a/include/pool.h b/include/pool.h
+index c1d64111..b3bb8cb3 100644
+--- a/include/pool.h
++++ b/include/pool.h
+@@ -7,7 +7,7 @@
+ #include <stdint.h>
+ #include <string.h>
+ 
+-#if defined(ANT_WASM_EMBED)
++#if defined(ANT_EMBED)
+ #elif defined(_WIN32)
+ #define WIN32_LEAN_AND_MEAN
+ #include <windows.h>
+@@ -142,7 +142,7 @@ static inline ant_pool_block_t *pool_block_alloc(size_t cap) {
+ }
+ 
+ static inline void pool_block_madvise_free(ant_pool_block_t *block) {
+-#if defined(ANT_WASM_EMBED)
++#if defined(ANT_EMBED)
+   (void)block;
+ #elif !defined(_WIN32)
+   const uintptr_t page = 4096;
+diff --git a/include/silver/engine.h b/include/silver/engine.h
+index 323b98bf..38efbe36 100644
+--- a/include/silver/engine.h
++++ b/include/silver/engine.h
+@@ -154,7 +154,7 @@ static_assert(
+   "map template table header must preserve descriptor alignment"
+ );
+ 
+-#ifndef ANT_WASM_EMBED
++#ifndef ANT_EMBED
+ static_assert(
+   UINT32_MAX <= SIZE_MAX / sizeof(sv_map_template_desc_t),
+   "map template descriptor table must fit in size_t"
+@@ -355,7 +355,7 @@ typedef struct {
+     } comparison;
+   } guard;
+   
+-#ifdef ANT_WASM_EMBED
++#ifdef ANT_EMBED
+   uint32_t wasm32_proto_identity;
+   uint8_t wasm32_cacheline_padding[12];
+ #endif
+@@ -1036,7 +1036,7 @@ typedef struct {
+ #define SV_HANDLER_INITIAL (SV_TRY_MAX * 2)
+ #define SV_HANDLER_HARD_MAX UINT16_MAX
+ 
+-#ifdef ANT_WASM_EMBED
++#ifdef ANT_EMBED
+ #define SV_FRAMES_HARD_MAX 16384
+ #define SV_STACK_HARD_MAX  131072
+ #else
+diff --git a/include/wasm_embed.h b/include/wasm_embed.h
+index 09d7dcbb..15d2bebc 100644
+--- a/include/wasm_embed.h
++++ b/include/wasm_embed.h
+@@ -11,6 +11,12 @@
+ #error "ANT_WASM_EMBED requires a WebAssembly target"
+ #endif
+ 
++#ifndef ANT_EMBED
++#error "ANT_WASM_EMBED builds on the embed profile: also define ANT_EMBED"
++#endif
++
++#include "embed.h"
++
+ #define ANT_WASM_IMPORT(module_literal, name_literal) \
+   __attribute__((import_module(module_literal), import_name(name_literal)))
+ 
+@@ -29,9 +35,6 @@ double ant_wasm_now_ms(void);
+ ANT_WASM_IMPORT("ant", "random_fill")
+ int32_t ant_wasm_random_fill(void *buffer, uint32_t length);
+ 
+-bool ant_wasm_should_interrupt(ant_t *js);
+-void ant_wasm_microtasks_reset(ant_t *js);
+-
+ #endif
+ 
+ #endif
+diff --git a/packages/wasm/meson.build b/packages/wasm/meson.build
+index 643b245a..a1cc9334 100644
+--- a/packages/wasm/meson.build
++++ b/packages/wasm/meson.build
+@@ -97,12 +97,14 @@ core_sources = files(
+   '../../src/modules/regex.c',
+   '../../src/modules/symbol.c',
+   'src/bridge.c',
++  'src/platform.c',
+   'src/stubs.c',
+   'src/jit_stub.c',
+   'src/utils.c',
+ )
+ 
+ add_project_arguments(
++  '-DANT_EMBED=1',
+   '-DANT_WASM_EMBED=1',
+   '-DNO_EXECUTE_PERMISSION',
+   '-DPCRE2_STATIC',
+diff --git a/packages/wasm/src/bridge.c b/packages/wasm/src/bridge.c
+index ad412890..53557658 100644
+--- a/packages/wasm/src/bridge.c
++++ b/packages/wasm/src/bridge.c
+@@ -51,7 +51,7 @@ typedef struct {
+ static ant_wasm_runtime_t *active_runtime;
+ 
+ static bool ant_wasm_deadline_expired(ant_wasm_runtime_t *runtime) {
+-  if (!runtime || !runtime->js->wasm_interrupt_enabled) return false;
++  if (!runtime || !runtime->js->embed_interrupt_enabled) return false;
+   if (runtime->timed_out) return true;
+   if (ant_wasm_now_ms() < runtime->deadline_ms) return false;
+   runtime->timed_out = true;
+@@ -652,7 +652,7 @@ static ant_value_t host_function_call(ant_params_t) {
+   return decoded;
+ }
+ 
+-bool ant_wasm_should_interrupt(ant_t *js) {
++bool ant_embed_should_interrupt(ant_t *js) {
+   return active_runtime && active_runtime->js == js &&
+     ant_wasm_deadline_expired(active_runtime);
+ }
+@@ -683,7 +683,7 @@ ant_wasm_runtime_t *ant_wasm_create(void) {
+   runtime->js = js;
+   js->uncaught_nonfatal = true;
+   active_runtime = runtime;
+-  ant_wasm_microtasks_reset(js);
++  ant_embed_microtasks_reset(js);
+   ant_runtime_init(js, 0, NULL, NULL);
+   init_symbol_module(js);
+   init_intrinsic_symbols(js);
+@@ -701,7 +701,7 @@ ant_wasm_runtime_t *ant_wasm_create(void) {
+ ANT_WASM_EXPORT("ant_destroy")
+ void ant_wasm_destroy(ant_wasm_runtime_t *runtime) {
+   if (!runtime) return;
+-  ant_wasm_microtasks_reset(runtime->js);
++  ant_embed_microtasks_reset(runtime->js);
+   if (active_runtime == runtime) active_runtime = NULL;
+   js_destroy(runtime->js);
+   clear_last_result(runtime);
+@@ -785,10 +785,10 @@ const uint8_t *ant_wasm_eval(
+   volatile char stack_base;
+   js_setstackbase(js, (void *)&stack_base);
+   js_setstacklimit(js, 768 * 1024);
+-  js->wasm_interrupt_ticks = 0;
+-  js->wasm_interrupt_enabled = timeout_ms > 0;
++  js->embed_interrupt_ticks = 0;
++  js->embed_interrupt_enabled = timeout_ms > 0;
+   runtime->timed_out = false;
+-  runtime->deadline_ms = js->wasm_interrupt_enabled
++  runtime->deadline_ms = js->embed_interrupt_enabled
+     ? ant_wasm_now_ms() + (double)timeout_ms : 0.0;
+ 
+   ant_value_t result = js_eval_bytecode_eval(js, source, source_length);
+@@ -797,7 +797,7 @@ const uint8_t *ant_wasm_eval(
+   const uint8_t *response = NULL;
+   if (runtime->timed_out) {
+     js_take_thrown(js, js_mkundef());
+-    ant_wasm_microtasks_reset(js);
++    ant_embed_microtasks_reset(js);
+     response = serialize_timeout(runtime);
+   } else if (is_err(result)) {
+     ant_value_t payload = error_payload(runtime, result);
+@@ -806,7 +806,7 @@ const uint8_t *ant_wasm_eval(
+     );
+     if (!response && runtime->timed_out) {
+       js_take_thrown(js, js_mkundef());
+-      ant_wasm_microtasks_reset(js);
++      ant_embed_microtasks_reset(js);
+       response = serialize_timeout(runtime);
+     } else if (!response) {
+       response = serialize_transfer_error(runtime);
+@@ -815,14 +815,14 @@ const uint8_t *ant_wasm_eval(
+     response = serialize_value(runtime, ANT_WASM_RESPONSE_OK, result);
+     if (!response && runtime->timed_out) {
+       js_take_thrown(js, js_mkundef());
+-      ant_wasm_microtasks_reset(js);
++      ant_embed_microtasks_reset(js);
+       response = serialize_timeout(runtime);
+     } else if (!response) {
+       response = serialize_transfer_error(runtime);
+     }
+   }
+ 
+-  js->wasm_interrupt_enabled = false;
++  js->embed_interrupt_enabled = false;
+   runtime->deadline_ms = 0.0;
+   return response;
+ }
+diff --git a/packages/wasm/src/platform.c b/packages/wasm/src/platform.c
+new file mode 100644
+index 00000000..f9eac35e
+--- /dev/null
++++ b/packages/wasm/src/platform.c
+@@ -0,0 +1,19 @@
++// Embed host hooks (embed.h) for the WebAssembly reactor: imports from the host.
++#include "wasm_embed.h"
++
++#include <stdio.h>
++#include <stdlib.h>
++
++double ant_embed_now_ms(void) {
++  return ant_wasm_now_ms();
++}
++
++int ant_embed_random_fill(void *buf, size_t len) {
++  if (len > UINT32_MAX) return -1;
++  return ant_wasm_random_fill(buf, (uint32_t)len);
++}
++
++_Noreturn void ant_embed_fatal(const char *msg, const char *file, int line) {
++  fprintf(stderr, "ANT FATAL: %s\n  %s:%d\n", msg, file, line);
++  abort();
++}
+diff --git a/packages/wasm/src/stubs.c b/packages/wasm/src/stubs.c
+index 1c7d1f5c..012d9b60 100644
+--- a/packages/wasm/src/stubs.c
++++ b/packages/wasm/src/stubs.c
+@@ -195,7 +195,7 @@ static void ant_wasm_microtask_discard(
+   free(task);
+ }
+ 
+-void ant_wasm_microtasks_reset(ant_t *js) {
++void ant_embed_microtasks_reset(ant_t *js) {
+   ant_wasm_microtask_t *task = ant_wasm_microtasks.processing;
+   while (task) {
+     ant_wasm_microtask_t *next = task->next;
+@@ -215,7 +215,7 @@ static void ant_wasm_microtask_append(
+   ant_t *js, ant_wasm_microtask_t *task
+ ) {
+   if (ant_wasm_microtasks.js && ant_wasm_microtasks.js != js)
+-    ant_wasm_microtasks_reset(ant_wasm_microtasks.js);
++    ant_embed_microtasks_reset(ant_wasm_microtasks.js);
+   ant_wasm_microtasks.js = js;
+   if (ant_wasm_microtasks.tail)
+     ant_wasm_microtasks.tail->next = task;
+@@ -359,9 +359,9 @@ static bool ant_wasm_drain_microtasks(
+       ant_wasm_microtasks.processing = batch;
+       ant_wasm_process_microtask(js, task);
+       free(task);
+-      if (ant_wasm_should_interrupt(js)) {
++      if (ant_embed_should_interrupt(js)) {
+         interrupted = true;
+-        ant_wasm_microtasks_reset(js);
++        ant_embed_microtasks_reset(js);
+         break;
+       }
+     }
+@@ -472,6 +472,5 @@ int highlight_js_line_clipped(
+ }
+ 
+ int crypto_fill_random(void *buf, size_t len) {
+-  if (len > UINT32_MAX) return -1;
+-  return ant_wasm_random_fill(buf, (uint32_t)len);
++  return ant_embed_random_fill(buf, len);
+ }
+diff --git a/src/ant.c b/src/ant.c
+index 4a3dcd67..19d072de 100644
+--- a/src/ant.c
++++ b/src/ant.c
+@@ -63,7 +63,7 @@
+ #include "modules/websocket.h"
+ #include "modules/dns.h"
+ 
+-#ifndef ANT_WASM_EMBED
++#ifndef ANT_EMBED
+ #include <uv.h>
+ #endif
+ #include <assert.h>
+@@ -75,7 +75,7 @@
+ #include <utarray.h>
+ #include <uthash.h>
+ #include <float.h>
+-#ifndef ANT_WASM_EMBED
++#ifndef ANT_EMBED
+ #include <tlsuv/tlsuv.h>
+ #include <tlsuv/http.h>
+ #endif
+@@ -85,7 +85,7 @@
+ #else
+ #include <sys/time.h>
+ #include <sys/stat.h>
+-#ifndef ANT_WASM_EMBED
++#ifndef ANT_EMBED
+ #include <sys/resource.h>
+ #endif
+ #endif
+diff --git a/src/cage.c b/src/cage.c
+index 90114af9..a143c945 100644
+--- a/src/cage.c
++++ b/src/cage.c
+@@ -8,7 +8,7 @@
+ #ifdef _WIN32
+ #define WIN32_LEAN_AND_MEAN
+ #include <windows.h>
+-#elif !defined(ANT_WASM_EMBED)
++#elif !defined(ANT_EMBED)
+ #include <pthread.h>
+ #include <sys/mman.h>
+ #include <unistd.h>
+@@ -17,9 +17,9 @@
+ uintptr_t ant_cage_base_address = 0;
+ size_t ant_cage_reserved_size = 0;
+ 
+-#ifdef ANT_WASM_EMBED
++#ifdef ANT_EMBED
+ 
+-static void *ant_wasm_aligned_alloc(size_t size, size_t align) {
++static void *ant_embed_aligned_alloc(size_t size, size_t align) {
+   if (align < sizeof(void *)) align = sizeof(void *);
+   size_t remainder = size % align;
+   if (remainder) size += align - remainder;
+@@ -27,12 +27,12 @@ static void *ant_wasm_aligned_alloc(size_t size, size_t align) {
+ }
+ 
+ void *ant_cage_alloc(size_t size, size_t align) {
+-  return size ? ant_wasm_aligned_alloc(size, align) : NULL;
++  return size ? ant_embed_aligned_alloc(size, align) : NULL;
+ }
+ 
+ void *ant_cage_reserve(size_t size, size_t align, size_t keep) {
+   (void)keep;
+-  return size ? ant_wasm_aligned_alloc(size, align) : NULL;
++  return size ? ant_embed_aligned_alloc(size, align) : NULL;
+ }
+ 
+ void ant_cage_free(void *ptr, size_t size) {
+diff --git a/src/error_render.c b/src/error_render.c
+index 19fd5a55..148dd5db 100644
+--- a/src/error_render.c
++++ b/src/error_render.c
+@@ -12,11 +12,11 @@
+ #include <limits.h>
+ #include <crprintf.h>
+ 
+-#ifndef ANT_WASM_EMBED
++#ifndef ANT_EMBED
+ #include <uv.h>
+ #endif
+ 
+-#if defined(ANT_WASM_EMBED)
++#if defined(ANT_EMBED)
+ #elif defined(_WIN32)
+ #define WIN32_LEAN_AND_MEAN
+ #include <windows.h>
+@@ -237,7 +237,7 @@ static int error_span_cols_for_line(const char *src, ant_offset_t src_pos, ant_o
+ }
+ 
+ static int error_terminal_columns(void) {
+-#ifdef ANT_WASM_EMBED
++#ifdef ANT_EMBED
+   return 120;
+ #elif defined(_WIN32)
+   HANDLE h = GetStdHandle(STD_ERROR_HANDLE);
+@@ -259,7 +259,7 @@ static int error_terminal_columns(void) {
+   }
+ #endif
+ 
+-#ifndef ANT_WASM_EMBED
++#ifndef ANT_EMBED
+   const char *cols_env = getenv("COLUMNS");
+   if (cols_env && *cols_env) {
+     char *end = NULL;
+@@ -279,7 +279,7 @@ static int error_context_src_cols_limit(int gutter_w) {
+   return budget;
+ }
+ 
+-#ifndef ANT_WASM_EMBED
++#ifndef ANT_EMBED
+ static _Thread_local struct {
+   bool fetched, ok;
+   uint64_t epoch;
+@@ -302,7 +302,7 @@ static const char *error_cwd(size_t *len) {
+ #endif
+ 
+ static size_t error_frame_path_prefix(const char *file) {
+-#ifndef ANT_WASM_EMBED
++#ifndef ANT_EMBED
+   size_t len = 0;
+   const char *cwd = error_cwd(&len);
+   if (cwd && len > 0 && strncmp(file, cwd, len) == 0) {
+diff --git a/src/gc/arena.c b/src/gc/arena.c
+index b821f63e..99d75569 100644
+--- a/src/gc/arena.c
++++ b/src/gc/arena.c
+@@ -1,6 +1,6 @@
+ #include "arena.h"
+ 
+-#if !defined(_WIN32) && !defined(ANT_WASM_EMBED)
++#if !defined(_WIN32) && !defined(ANT_EMBED)
+ #include <pthread.h>
+ #endif
+ 
+@@ -14,7 +14,7 @@ static uintptr_t arena_table_base = 0;
+ static size_t arena_table_slots = 0;
+ static _Atomic(uint32_t) arena_next_id = 1;
+ 
+-#ifdef ANT_WASM_EMBED
++#ifdef ANT_EMBED
+ 
+ static constexpr size_t ARENA_WASM_SLOTS = ((uint64_t)UINT32_MAX + 1) >> ANT_ARENA_CHUNK_SHIFT;
+ static _Atomic(uint32_t) wasm_arena_owners[ARENA_WASM_SLOTS];
+diff --git a/src/gc/gc.c b/src/gc/gc.c
+index e2c6d2e4..711154e5 100644
+--- a/src/gc/gc.c
++++ b/src/gc/gc.c
+@@ -12,8 +12,8 @@
+ #include "gc/ropes.h"
+ #include "silver/engine.h"
+ 
+-#ifdef ANT_WASM_EMBED
+-#include "wasm_embed.h"
++#ifdef ANT_EMBED
++#include "embed.h"
+ #endif
+ 
+ bool gc_disabled = false;
+diff --git a/src/gc/objects.c b/src/gc/objects.c
+index 8225a059..f1fbb710 100644
+--- a/src/gc/objects.c
++++ b/src/gc/objects.c
+@@ -23,7 +23,7 @@
+ 
+ #include <stdlib.h>
+ #include <string.h>
+-#ifndef ANT_WASM_EMBED
++#ifndef ANT_EMBED
+ #include <setjmp.h>
+ #endif
+ #include <utarray.h>
+@@ -1025,13 +1025,13 @@ static void gc_scan_segmented(ant_t *js, uintptr_t lo, uintptr_t hi) {
+ 
+ __attribute__((noinline))
+ static void gc_scan_current_stack(ant_t *js) {
+-#ifndef ANT_WASM_EMBED
++#ifndef ANT_EMBED
+   jmp_buf jb;
+   if (setjmp(jb) != 0) return;
+ #endif
+   uintptr_t lo, hi;
+   if (!gc_get_stack_bounds((uintptr_t)js->cstk.base, gc_native_sp(), &lo, &hi)) return;
+-#if (defined(__aarch64__) || defined(__x86_64__)) && !defined(_WIN32) && !defined(ANT_WASM_EMBED)
++#if (defined(__aarch64__) || defined(__x86_64__)) && !defined(_WIN32) && !defined(ANT_EMBED)
+   if (js->vm_segs || gc_uv_segs) {
+     gc_scan_segmented(js, lo, hi);
+     return;
+diff --git a/src/modules/io.c b/src/modules/io.c
+index 3e31b127..0f702aa9 100644
+--- a/src/modules/io.c
++++ b/src/modules/io.c
+@@ -6,7 +6,7 @@
+ #include <stdbool.h>
+ #include <ctype.h>
+ #include <inttypes.h>
+-#ifndef ANT_WASM_EMBED
++#ifndef ANT_EMBED
+ #include <uv.h>
+ #endif
+ #ifdef _WIN32
+@@ -31,8 +31,8 @@
+ #include "output.h"
+ #include "internal.h"
+ #include "utils.h"
+-#ifdef ANT_WASM_EMBED
+-#include "wasm_embed.h"
++#ifdef ANT_EMBED
++#include "embed.h"
+ #else
+ #include "inspector.h"
+ #endif
+@@ -41,7 +41,7 @@
+ #include "modules/util.h"
+ #include "sandbox/sandbox.h"
+ 
+-#ifdef ANT_WASM_EMBED
++#ifdef ANT_EMBED
+ bool io_no_color = true;
+ #else
+ bool io_no_color = false;
+@@ -927,35 +927,35 @@ ant_value_t console_emit_current(
+ }
+ 
+ static ant_value_t js_console_log(ant_params_t) {
+-#ifndef ANT_WASM_EMBED
++#ifndef ANT_EMBED
+   ant_inspector_console_api_called(js, "log", args, nargs);
+ #endif
+   return console_emit_current(js, false, NULL, args, nargs);
+ }
+ 
+ static ant_value_t js_console_error(ant_params_t) {
+-#ifndef ANT_WASM_EMBED
++#ifndef ANT_EMBED
+   ant_inspector_console_api_called(js, "error", args, nargs);
+ #endif
+   return console_emit_current(js, true, NULL, args, nargs);
+ }
+ 
+ static ant_value_t js_console_warn(ant_params_t) {
+-#ifndef ANT_WASM_EMBED
++#ifndef ANT_EMBED
+   ant_inspector_console_api_called(js, "warning", args, nargs);
+ #endif
+   return console_emit_current(js, true, NULL, args, nargs);
+ }
+ 
+ static ant_value_t js_console_info(ant_params_t) {
+-#ifndef ANT_WASM_EMBED
++#ifndef ANT_EMBED
+   ant_inspector_console_api_called(js, "info", args, nargs);
+ #endif
+   return console_emit_current(js, false, NULL, args, nargs);
+ }
+ 
+ static ant_value_t js_console_debug(ant_params_t) {
+-#ifndef ANT_WASM_EMBED
++#ifndef ANT_EMBED
+   ant_inspector_console_api_called(js, "debug", args, nargs);
+ #endif
+   return console_emit_current(js, false, NULL, args, nargs);
+@@ -965,7 +965,7 @@ static ant_value_t js_console_assert(ant_params_t) {
+   if (nargs < 1) return js_mkundef();
+   bool is_truthy = js_truthy(js, args[0]);
+   if (is_truthy) return js_mkundef();
+-#ifndef ANT_WASM_EMBED
++#ifndef ANT_EMBED
+   ant_inspector_console_api_called(js, "assert", args + 1, nargs - 1);
+ #endif
+   return console_emit_current(js, true, "Assertion failed:", args + 1, nargs - 1);
+@@ -973,7 +973,7 @@ static ant_value_t js_console_assert(ant_params_t) {
+ 
+ static ant_value_t js_console_trace(ant_params_t) {
+   ant_value_t this_obj = console_get_effective_this(js, js_getthis(js));
+-#ifndef ANT_WASM_EMBED
++#ifndef ANT_EMBED
+   ant_inspector_console_api_called(js, "trace", args, nargs);
+ #endif
+   console_emit_current(js, true, "Trace:", args, nargs);
+@@ -993,8 +993,8 @@ static ant_value_t js_console_clear(ant_params_t) {
+ }
+ 
+ static double console_now_ms(void) {
+-#ifdef ANT_WASM_EMBED
+-  return ant_wasm_now_ms();
++#ifdef ANT_EMBED
++  return ant_embed_now_ms();
+ #else
+   return (double)uv_hrtime() / 1e6;
+ #endif
+diff --git a/src/pool.c b/src/pool.c
+index e4e60c56..c647dc74 100644
+--- a/src/pool.c
++++ b/src/pool.c
+@@ -96,7 +96,7 @@ static inline size_t pool_page_size(void) {
+   static _Atomic size_t cached = 0;
+   size_t size = atomic_load_explicit(&cached, memory_order_relaxed);
+   if (size) return size;
+-#ifdef ANT_WASM_EMBED
++#ifdef ANT_EMBED
+   size = 4096u;
+ #elif defined(_WIN32)
+   SYSTEM_INFO info;
+diff --git a/src/runtime.c b/src/runtime.c
+index f489ef61..d582d3aa 100644
+--- a/src/runtime.c
++++ b/src/runtime.c
+@@ -7,11 +7,11 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <uthash.h>
+-#ifndef ANT_WASM_EMBED
++#ifndef ANT_EMBED
+ #include <argtable3.h>
+ #endif
+ 
+-#if defined(ANT_WASM_EMBED)
++#if defined(ANT_EMBED)
+ #define ant_getpid() 0
+ #elif defined(_WIN32)
+ #include <process.h>
+@@ -205,7 +205,7 @@ void ant_runtime_init(ant_t *js, int argc, char **argv, struct arg_file *ls_p) {
+   js->runtime.argc = argc;
+   js->runtime.argv = argv;
+   js->runtime.pid = (int)ant_getpid();
+-#ifdef ANT_WASM_EMBED
++#ifdef ANT_EMBED
+   (void)ls_p;
+   js->runtime.ls_fp = NULL;
+ #else
+diff --git a/src/silver/engine.c b/src/silver/engine.c
+index 6a0d9c06..503137a6 100644
+--- a/src/silver/engine.c
++++ b/src/silver/engine.c
+@@ -10,7 +10,7 @@
+ #ifdef _WIN32
+ #define WIN32_LEAN_AND_MEAN
+ #include <windows.h>
+-#elif !defined(ANT_WASM_EMBED)
++#elif !defined(ANT_EMBED)
+ #include <sys/mman.h>
+ #endif
+ 
+@@ -42,8 +42,8 @@
+ #include "ops/objects.h"
+ #include "ops/coercion.h"
+ 
+-#ifdef ANT_WASM_EMBED
+-#include "wasm_embed.h"
++#ifdef ANT_EMBED
++#include "embed.h"
+ #endif
+ 
+ static constexpr size_t SV_VM_GUARD_SIZE = 65536;
+@@ -256,7 +256,7 @@ void sv_ic_shape_refs_cleanup(ant_t *js) {
+ }
+ 
+ static void *sv_vm_reserve_storage(void) {
+-#ifdef ANT_WASM_EMBED
++#ifdef ANT_EMBED
+   return calloc(1, SV_VM_RESERVE);
+ #elif defined(_WIN32)
+   return VirtualAlloc(NULL, SV_VM_RESERVE, MEM_RESERVE, PAGE_READWRITE);
+@@ -277,7 +277,7 @@ static void *sv_vm_reserve_storage(void) {
+ 
+ static void sv_vm_release_storage(void *base) {
+   if (!base) return;
+-#ifdef ANT_WASM_EMBED
++#ifdef ANT_EMBED
+   free(base);
+ #elif defined(_WIN32)
+   VirtualFree(base, 0, MEM_RELEASE);
+@@ -287,7 +287,7 @@ static void sv_vm_release_storage(void *base) {
+ }
+ 
+ static bool sv_vm_commit_storage(void *addr, size_t bytes) {
+-#ifdef ANT_WASM_EMBED
++#ifdef ANT_EMBED
+   (void)addr;
+   (void)bytes;
+   return true;
+@@ -1978,11 +1978,11 @@ ant_value_t sv_execute_frame(sv_vm_t *vm, sv_func_t *func, ant_value_t this, ant
+     }                                                      \
+   })
+ 
+-#ifdef ANT_WASM_EMBED
++#ifdef ANT_EMBED
+   #define DISPATCH() do {                                                   \
+-    if (js->wasm_interrupt_enabled &&                                       \
+-        (++js->wasm_interrupt_ticks & 1023u) == 0 &&                        \
+-        ant_wasm_should_interrupt(js)) {                                    \
++    if (js->embed_interrupt_enabled &&                                       \
++        (++js->embed_interrupt_ticks & 1023u) == 0 &&                        \
++        ant_embed_should_interrupt(js)) {                                    \
+       vm_result = js_mkerr_typed(js, JS_ERR_RANGE, "Execution timed out");  \
+       goto sv_leave;                                                        \
+     }                                                                       \
+diff --git a/src/silver/limits.c b/src/silver/limits.c
+index e5bc3655..4d0ea052 100644
+--- a/src/silver/limits.c
++++ b/src/silver/limits.c
+@@ -10,12 +10,12 @@
+ #ifdef _WIN32
+ #define WIN32_LEAN_AND_MEAN
+ #include <windows.h>
+-#elif !defined(ANT_WASM_EMBED)
++#elif !defined(ANT_EMBED)
+ #include <sys/resource.h>
+ #include <pthread.h>
+ #endif
+ 
+-#if defined(__linux__) && !defined(ANT_WASM_EMBED)
++#if defined(__linux__) && !defined(ANT_EMBED)
+ #include <sys/syscall.h>
+ #include <unistd.h>
+ #endif
+@@ -26,7 +26,7 @@
+ int sv_user_stack_size_kb = 0;
+ 
+ size_t os_thread_stack_size(void) {
+-#ifdef ANT_WASM_EMBED
++#ifdef ANT_EMBED
+   return 1024 * 1024;
+ #elif defined(_WIN32)
+   ULONG_PTR low, high;
+diff --git a/src/silver/ops/property.h b/src/silver/ops/property.h
+index 90e76416..cf21ec3d 100644
+--- a/src/silver/ops/property.h
++++ b/src/silver/ops/property.h
+@@ -195,7 +195,7 @@ static inline void sv_ic_set_cached_shape(ant_t *js, sv_ic_entry_t *ic, ant_shap
+   sv_ic_set_shape_ref(js, ic, &ic->cached_shape, SV_IC_SHAPE_REF_CACHED, shape);
+ }
+ 
+-#ifdef ANT_WASM_EMBED
++#ifdef ANT_EMBED
+ static inline uint32_t sv_gf_ic_proto_id(const sv_ic_entry_t *ic) {
+   return ic->wasm32_proto_identity;
+ }

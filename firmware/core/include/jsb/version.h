@@ -10,6 +10,10 @@
 #define JSB_ENGINE "none"
 #endif
 
+#ifndef JSB_ENGINE_VERSION
+#define JSB_ENGINE_VERSION "-"
+#endif
+
 #ifndef JSB_BOARD
 #define JSB_BOARD "unknown"
 #endif

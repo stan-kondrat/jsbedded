@@ -1,0 +1,1183 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: JSBedded <noreply@jsbedded.invalid>
+Date: Sat, 21 Nov 2026 00:00:00 +0000
+Subject: [PATCH 8/9] Make the embed source list link without the OS modules
+
+Not sent upstream yet (part of upstream ask 4 in JSBedded's
+firmware/engines/ant/README.md: a minimal embed source list).
+
+At this version the reactor's source list (packages/wasm/meson.build)
+no longer links: src/ant.c calls the event loop, the HTTP pool, watch
+mode, workers, N-API, Wasm, ES module helpers and the cleanup and GC
+hooks of about twenty modules unconditionally, and includes loop.h,
+watch.h, modules/http.h and modules/websocket.h, which need <uv.h>.
+The promise code, the arena allocator and the stringify helpers it
+needs are not in the list at all. The embed microtask queue also
+predates the await_resume_job handshake that sugar.c and promise.c use.
+
+- The embed list (sources.json "embed", and the reactor's
+  core_sources) adds the OS-free files the core needs:
+  src/gc/arena.c, src/modules/promise.c, src/stringify.c,
+  src/modules/domexception.c and src/index.c.
+- src/embed/microtasks.c replaces the queue in src/embed/stubs.c with
+  the job part of src/modules/timer.c (same job kinds and processing,
+  without timers, immediates, next ticks or libuv), plus the embed
+  interrupt check between jobs.
+- src/embed/module_stubs.c provides the hooks of the modules that are
+  not built: no-ops for lifecycle and GC hooks, "not available" for
+  import.meta.resolve, false for the ESM URL checks, a file:// URL for
+  import.meta.url, no printf-style substitution in console.log, no
+  typed arrays, the embed built-ins for node:vm realms, and "not
+  available" for import().
+- src/embed/jit_stub.c also covers sv_jit_drop_func_code and
+  sv_jit_await_resume (nothing is ever JIT-compiled).
+- src/embed/stubs.c: gc_clear_napi_weak_refs takes the
+  gc_weak_key_alive_fn its header declares.
+- Under ANT_EMBED, src/ant.c skips the four libuv headers and declares
+  the seven functions it uses from them; modules/atomics.h leaves out
+  the pthread-based Atomics.wait queues, which only atomics.c uses.
+---
+ include/modules/atomics.h |   5 +
+ packages/wasm/meson.build |   7 +
+ sources.json              |   9 +-
+ src/ant.c                 |  20 ++
+ src/embed/jit_stub.c      |  18 ++
+ src/embed/microtasks.c    | 461 ++++++++++++++++++++++++++++++++++++++
+ src/embed/module_stubs.c  | 231 +++++++++++++++++++
+ src/embed/stubs.c         | 262 +---------------------
+ 8 files changed, 752 insertions(+), 261 deletions(-)
+ create mode 100644 src/embed/microtasks.c
+ create mode 100644 src/embed/module_stubs.c
+
+diff --git a/include/modules/atomics.h b/include/modules/atomics.h
+index 7bada19e..8a2d643a 100644
+--- a/include/modules/atomics.h
++++ b/include/modules/atomics.h
+@@ -2,7 +2,9 @@
+ #define ATOMICS_H
+ 
+ #include <stdint.h>
++#ifndef ANT_EMBED
+ #include <pthread.h>
++#endif
+ 
+ #include "types.h"
+ 
+@@ -10,6 +12,8 @@ void init_atomics_module(ant_t *js);
+ void cleanup_atomics_module(ant_t *js);
+ void atomics_wake_isolate(ant_t *js);
+ 
++#ifndef ANT_EMBED
++// Atomics.wait queues (modules/atomics.c, not part of embed builds).
+ typedef struct WaitQueueEntry {
+   ant_t *js;
+   pthread_cond_t cond;
+@@ -28,5 +32,6 @@ void wait_queue_init(WaitQueue *queue);
+ void wait_queue_add(WaitQueue *queue, WaitQueueEntry *entry);
+ void wait_queue_remove(WaitQueue *queue, WaitQueueEntry *entry);
+ int wait_queue_notify(WaitQueue *queue, int32_t *address, int count);
++#endif
+ 
+ #endif
+diff --git a/packages/wasm/meson.build b/packages/wasm/meson.build
+index 5b0064c4..2a01240a 100644
+--- a/packages/wasm/meson.build
++++ b/packages/wasm/meson.build
+@@ -101,6 +101,13 @@ core_sources = files(
+   '../../src/embed/stubs.c',
+   '../../src/embed/jit_stub.c',
+   '../../src/embed/utils.c',
++  '../../src/embed/microtasks.c',
++  '../../src/embed/module_stubs.c',
++  '../../src/gc/arena.c',
++  '../../src/modules/promise.c',
++  '../../src/stringify.c',
++  '../../src/modules/domexception.c',
++  '../../src/index.c',
+ )
+ 
+ add_project_arguments(
+diff --git a/sources.json b/sources.json
+index c72cff00..79ea013a 100644
+--- a/sources.json
++++ b/sources.json
+@@ -204,7 +204,14 @@
+       "src/modules/symbol.c",
+       "src/embed/stubs.c",
+       "src/embed/jit_stub.c",
+-      "src/embed/utils.c"
++      "src/embed/utils.c",
++      "src/gc/arena.c",
++      "src/modules/promise.c",
++      "src/stringify.c",
++      "src/modules/domexception.c",
++      "src/embed/microtasks.c",
++      "src/embed/module_stubs.c",
++      "src/index.c"
+     ],
+     "exclude": []
+   }
+diff --git a/src/ant.c b/src/ant.c
+index a9ab4d18..a62dd992 100644
+--- a/src/ant.c
++++ b/src/ant.c
+@@ -19,9 +19,13 @@
+ #include "builder.h"
+ #include "stringify.h"
+ #include "runtime.h"
++#ifndef ANT_EMBED
+ #include "loop.h"
++#endif
+ #include "internal.h"
++#ifndef ANT_EMBED
+ #include "watch.h"
++#endif
+ #include "interrupt.h"
+ #include "protectors.h"
+ #include "errors.h"
+@@ -60,7 +64,9 @@
+ #include "modules/process.h"
+ #include "modules/abort.h"
+ #include "modules/eventsource.h"
++#ifndef ANT_EMBED
+ #include "modules/websocket.h"
++#endif
+ #include "modules/dns.h"
+ 
+ #ifndef ANT_EMBED
+@@ -116,10 +122,24 @@
+ #include "modules/fs.h"
+ #include "modules/child_process.h"
+ #include "modules/fetch.h"
++#ifndef ANT_EMBED
+ #include "modules/http.h"
++#endif
+ #include "modules/net.h"
+ #include "modules/tls.h"
+ 
++#ifdef ANT_EMBED
++// Embed builds have no event loop, HTTP client, WebSockets or file watching
++// (their headers need libuv); src/embed/module_stubs.c provides these.
++bool Ant_Loop_Init(ant_t *js);
++void Ant_Loop_Drain(ant_t *js);
++void Ant_Loop_Destroy(ant_t *js);
++void ant_http_pool_free(struct ant_http_pool *pool);
++void cleanup_websocket_module(ant_t *js);
++bool ant_watch_supervises(ant_t *js);
++ant_value_t ant_watch_exit(ant_t *js);
++#endif
++
+ #define D(x) ((double)(x))
+ 
+ static_assert(sizeof(double) == 8, "NaN-boxing requires 64-bit IEEE 754 doubles");
+diff --git a/src/embed/jit_stub.c b/src/embed/jit_stub.c
+index dc809059..952d2d2c 100644
+--- a/src/embed/jit_stub.c
++++ b/src/embed/jit_stub.c
+@@ -63,3 +63,21 @@ int sv_jit_frames_at(ant_t *js, uintptr_t pc, sv_jit_frame_t *out, int cap) {
+ void sv_jit_arm_interrupts(ant_t *js) {
+   js->interrupts_armed = true;
+ }
++
++// Nothing is ever JIT-compiled here, so there is no machine code to drop
++// and no compiled frame to resume.
++void sv_jit_drop_func_code(sv_func_t *func) {
++  (void)func;
++}
++
++ant_value_t sv_jit_await_resume(
++  sv_vm_t *vm, ant_t *js, sv_frame_t *frame,
++  sv_func_t *func, int resume_off
++) {
++  (void)vm;
++  (void)js;
++  (void)frame;
++  (void)func;
++  (void)resume_off;
++  return SV_JIT_RETRY_INTERP;
++}
+diff --git a/src/embed/microtasks.c b/src/embed/microtasks.c
+new file mode 100644
+index 00000000..5a5c6711
+--- /dev/null
++++ b/src/embed/microtasks.c
+@@ -0,0 +1,461 @@
++// Microtask queue for embed builds: the job part of src/modules/timer.c
++// (same job kinds and processing) without timers, immediates, next ticks or
++// libuv. Keep it in step with timer.c.
++#include <stdlib.h>
++#include <string.h>
++
++#include "ant.h"
++#include "embed.h"
++#include "errors.h"
++#include "internal.h"
++#include "realm.h"
++#include "silver/call.h"
++#include "sugar.h"
++#include "gc/modules.h"
++#include "gc/objects.h"
++#include "gc/roots.h"
++#include "gc/weak.h"
++#include "modules/generator.h"
++#include "modules/process.h"
++#include "modules/timer.h"
++
++enum {
++  MT_CALLBACK = 0,
++  MT_PROMISE_TRIGGER,
++  MT_THENABLE_JOB,
++  MT_AWAIT_RESUME,
++  MT_GENERATOR_YIELD,
++  MT_PROMISE_RESOLVE,
++  MT_AWAIT_RESUME_THROW,
++  MT_AWAIT_DEFER,
++};
++
++static inline bool microtask_holds_coro(uint8_t kind) {
++  return 
++    kind == MT_AWAIT_RESUME       || 
++    kind == MT_AWAIT_RESUME_THROW || 
++    kind == MT_AWAIT_DEFER;
++}
++
++typedef struct microtask_entry {
++  ant_value_t callback;
++  union {
++    ant_value_t promise;
++    ant_value_t this_val;
++    coroutine_t *coro;
++  } u;
++  struct microtask_entry *next;
++  uint8_t argc;
++  uint8_t kind;
++  ant_value_t argv[];
++} microtask_entry_t;
++
++static constexpr int MICROTASK_POOLED_ARGS = 1;
++static constexpr uint32_t MICROTASK_FREE_JOBS_MAX = 256;
++static constexpr size_t MICROTASK_POOLED_BYTES = sizeof(microtask_entry_t) + MICROTASK_POOLED_ARGS * sizeof(ant_value_t);
++
++static microtask_entry_t *microtask_entry_new(ant_t *js, int nargs) {
++  if (nargs > MICROTASK_POOLED_ARGS)
++    return calloc(1, sizeof(microtask_entry_t) + (size_t)nargs * sizeof(ant_value_t));
++
++  microtask_entry_t *entry = js->timers.free_jobs;
++  if (!entry) return calloc(1, MICROTASK_POOLED_BYTES);
++
++  js->timers.free_jobs = entry->next;
++  js->timers.free_job_count--;
++  memset(entry, 0, MICROTASK_POOLED_BYTES);
++  
++  return entry;
++}
++
++static void microtask_entry_free(ant_t *js, microtask_entry_t *entry) {
++  if (entry->argc > MICROTASK_POOLED_ARGS || js->timers.free_job_count >= MICROTASK_FREE_JOBS_MAX) {
++    free(entry);
++    return;
++  }
++  
++  entry->next = js->timers.free_jobs;
++  js->timers.free_jobs = entry;
++  js->timers.free_job_count++;
++}
++
++static void queue_microtask_entry(
++  microtask_entry_t **head,
++  microtask_entry_t **tail,
++  microtask_entry_t *entry
++) {
++  if (*tail == NULL) goto empty;
++
++  (*tail)->next = entry;
++  *tail = entry;
++  return;
++
++empty:
++  *head = entry;
++  *tail = entry;
++}
++
++static inline void queue_job(ant_t *js, microtask_entry_t *entry) {
++  ant_realm_t *own = js->microtask_realm;
++  if (__builtin_expect(own != NULL, 0)) queue_microtask_entry(&own->microtasks, &own->microtasks_tail, entry);
++  else queue_microtask_entry(&js->timers.microtasks, &js->timers.microtasks_tail, entry);
++}
++
++void queue_microtask(ant_t *js, ant_value_t callback) {
++  microtask_entry_t *entry = microtask_entry_new(js, 0);
++  if (entry == NULL) return;
++  
++  entry->callback = callback;
++  entry->u.promise = js_mkundef();
++  entry->next = NULL;
++  entry->argc = 0;
++  
++  queue_job(js, entry);
++}
++
++void queue_microtask_with_args(ant_t *js, ant_value_t callback, ant_value_t *args, int nargs) {
++  if (nargs <= 0) { queue_microtask(js, callback); return; }
++  
++  microtask_entry_t *entry = microtask_entry_new(js, nargs);
++  if (entry == NULL) return;
++  
++  entry->callback = callback;
++  entry->u.promise = js_mkundef();
++  entry->next = NULL;
++  entry->argc = (uint8_t)nargs;
++  
++  for (int i = 0; i < nargs; i++) entry->argv[i] = args[i];
++  queue_job(js, entry);
++}
++
++bool queue_promise_thenable_job(ant_t *js, ant_value_t promise, ant_value_t thenable, ant_value_t then_fn) {
++  microtask_entry_t *entry = microtask_entry_new(js, 1);
++  if (entry == NULL) return false;
++
++  entry->callback = then_fn;
++  entry->u.this_val = thenable;
++  entry->next = NULL;
++  entry->argc = 1;
++  entry->kind = MT_THENABLE_JOB;
++  entry->argv[0] = promise;
++
++  queue_job(js, entry);
++  
++  return true;
++}
++
++bool queue_generator_yield_job(ant_t *js, ant_value_t gen, ant_value_t value) {
++  microtask_entry_t *entry = microtask_entry_new(js, 0);
++  if (entry == NULL) return false;
++
++  entry->callback = value;
++  entry->u.this_val = gen;
++  entry->kind = MT_GENERATOR_YIELD;
++  queue_microtask_entry(&js->timers.microtasks, &js->timers.microtasks_tail, entry);
++  
++  return true;
++}
++
++bool queue_promise_resolve_job(ant_t *js, ant_value_t promise, ant_value_t value) {
++  microtask_entry_t *entry = microtask_entry_new(js, 0);
++  if (entry == NULL) return false;
++
++  entry->callback = value;
++  entry->u.promise = promise;
++  entry->kind = MT_PROMISE_RESOLVE;
++  queue_job(js, entry);
++  
++  return true;
++}
++
++static bool queue_coro_job(coroutine_t *coro, ant_value_t value, uint8_t kind) {
++  ant_t *js = coro->js;
++  microtask_entry_t *entry = microtask_entry_new(js, 0);
++  if (entry == NULL) return false;
++
++  entry->callback = value;
++  entry->u.coro = coro;
++  entry->next = NULL;
++  entry->kind = kind;
++
++  coroutine_retain(coro);
++  coro->await_resume_job = entry;
++  queue_job(js, entry);
++  
++  return true;
++}
++
++bool queue_await_resume_job(coroutine_t *coro, ant_value_t value) {
++  return queue_coro_job(coro, value, MT_AWAIT_RESUME);
++}
++
++bool queue_await_settle_job(coroutine_t *coro, ant_value_t value, bool is_error) {
++  return queue_coro_job(coro, value, is_error ? MT_AWAIT_RESUME_THROW : MT_AWAIT_RESUME);
++}
++
++bool queue_await_defer_job(coroutine_t *coro, ant_value_t value) {
++  return queue_coro_job(coro, value, MT_AWAIT_DEFER);
++}
++
++
++void queue_promise_trigger(ant_t *js, ant_value_t promise) {
++  if (!js_mark_promise_trigger_queued(js, promise)) return;
++
++  microtask_entry_t *entry = microtask_entry_new(js, 0);
++  if (entry == NULL) {
++    js_mark_promise_trigger_dequeued(js, promise);
++    return;
++  }
++  
++  entry->callback = js_mkundef();
++  entry->u.promise = promise;
++  entry->next = NULL;
++  entry->kind = MT_PROMISE_TRIGGER;
++
++  queue_job(js, entry);
++}
++
++static inline void process_microtask_entry(ant_t *js, microtask_entry_t *entry) {
++  if (!entry) return;
++
++  if (entry->kind == MT_PROMISE_TRIGGER) {
++    GC_ROOT_SAVE(root_mark, js);
++    ant_value_t promise = entry->u.promise;
++
++    GC_ROOT_PIN(js, promise);
++    js_mark_promise_trigger_dequeued(js, promise);
++    js_process_promise_handlers(js, promise);
++    GC_ROOT_RESTORE(js, root_mark);
++
++    return;
++  }
++
++  if (entry->kind == MT_GENERATOR_YIELD) {
++    Ant_Generator_SettleYield(js, entry->u.this_val, entry->callback);
++    return;
++  }
++
++  if (entry->kind == MT_THENABLE_JOB) {
++    js_process_promise_thenable_job(
++      js, entry->argv[0], 
++      entry->u.this_val, entry->callback
++    );
++    return;
++  }
++
++  if (entry->kind == MT_PROMISE_RESOLVE) {
++    GC_ROOT_SAVE(root_mark, js);
++    ant_value_t promise = entry->u.promise;
++    ant_value_t value = entry->callback;
++    
++    GC_ROOT_PIN(js, promise);
++    GC_ROOT_PIN(js, value);
++    
++    js_resolve_promise(js, promise, value);
++    GC_ROOT_RESTORE(js, root_mark);
++    
++    return;
++  }
++
++  if (entry->kind == MT_AWAIT_DEFER) {
++    GC_ROOT_SAVE(root_mark, js);
++    
++    ant_value_t value = entry->callback;
++    coroutine_t *coro = entry->u.coro;
++    
++    GC_ROOT_PIN(js, value);
++
++    if (
++      coro->await_registered && coro->await_resume_job == entry && 
++      !queue_await_resume_job(coro, value)
++    ) Ant_Coroutine_ResumeAwaitJob(js, coro, value, false);
++
++    coroutine_release(coro);
++    GC_ROOT_RESTORE(js, root_mark);
++    
++    return;
++  }
++
++  if (entry->kind == MT_AWAIT_RESUME || entry->kind == MT_AWAIT_RESUME_THROW) {
++    GC_ROOT_SAVE(root_mark, js);
++    
++    ant_value_t value = entry->callback;
++    coroutine_t *coro = entry->u.coro;
++    
++    GC_ROOT_PIN(js, value);
++
++    if (coro->await_registered && coro->await_resume_job == entry)
++      Ant_Coroutine_ResumeAwaitJob(js, coro, value, entry->kind == MT_AWAIT_RESUME_THROW);
++
++    coroutine_release(coro);
++    GC_ROOT_RESTORE(js, root_mark);
++    
++    return;
++  }
++
++  ant_value_t this_val = js_mkundef();
++  GC_ROOT_SAVE(root_mark, js);
++  
++  ant_value_t callback = entry->callback;
++  GC_ROOT_PIN(js, callback);
++  GC_ROOT_PIN(js, this_val);
++
++  for (uint8_t i = 0; i < entry->argc; i++) GC_ROOT_PIN(js, entry->argv[i]);
++  sv_vm_call(js->vm, js, callback, this_val, entry->argv, entry->argc, NULL, js_mkundef());
++
++  GC_ROOT_RESTORE(js, root_mark);
++  process_report_uncaught_exception_if_pending(js);
++}
++
++
++// Drops the jobs from entry on; coroutines and promise triggers are released.
++static void discard_jobs(ant_t *js, microtask_entry_t *entry) {
++  while (entry) {
++    microtask_entry_t *next = entry->next;
++    
++    if (microtask_holds_coro(entry->kind)) {
++      coroutine_clear_await_registration(entry->u.coro);
++      coroutine_release(entry->u.coro);
++    } else if (entry->kind == MT_PROMISE_TRIGGER) 
++      js_mark_promise_trigger_dequeued(js, entry->u.promise);
++    
++    free(entry);
++    entry = next;
++  }
++}
++
++void ant_embed_microtasks_reset(ant_t *js) {
++  if (!js) return;
++  ant_timer_state_t *t = &js->timers;
++  
++  discard_jobs(js, t->microtasks_processing);
++  discard_jobs(js, t->microtasks);
++  t->microtasks = t->microtasks_tail = t->microtasks_processing = NULL;
++  
++  for (ant_realm_t *realm = js->realms; realm; realm = realm->next) {
++    discard_jobs(js, realm->microtasks_processing);
++    discard_jobs(js, realm->microtasks);
++    realm->microtasks = realm->microtasks_tail = realm->microtasks_processing = NULL;
++  }
++}
++
++// Runs one batch; returns false if the embedder interrupted it (the rest of the
++// queue is then dropped, as the interpreter's own interrupt does).
++static bool process_microtask_batch(ant_t *js, microtask_entry_t *batch) {
++  while (batch != NULL) {
++    microtask_entry_t *entry = batch;
++    
++    batch = entry->next;
++    js->timers.microtasks_processing = batch;
++    
++    process_microtask_entry(js, entry);
++    microtask_entry_free(js, entry);
++    
++    if (ant_embed_should_interrupt(js)) {
++      ant_embed_microtasks_reset(js);
++      return false;
++    }
++  }
++  return true;
++}
++
++static void process_microtasks_internal(ant_t *js, bool check_unhandled_rejections) {
++  if (!js || js->microtasks_draining || js->destroying) return;
++  bool at_job_boundary = js->vm_exec_depth == 0;
++  bool interrupted = false;
++  js->microtasks_draining = true;
++
++  while (!interrupted && js->timers.microtasks != NULL) {
++    microtask_entry_t *batch = js->timers.microtasks;
++    js->timers.microtasks = NULL;
++    js->timers.microtasks_tail = NULL;
++    js->timers.microtasks_processing = batch;
++    interrupted = !process_microtask_batch(js, batch);
++  }
++
++  js->timers.microtasks_processing = NULL;
++  
++  if (check_unhandled_rejections && !interrupted) js_check_unhandled_rejections(js);
++  
++  js->microtasks_draining = false;
++  if (at_job_boundary) gc_weak_clear_kept_alive(js);
++}
++
++void ant_realm_run_microtasks(ant_t *js, ant_realm_t *realm) {
++  while (realm->microtasks) {
++    microtask_entry_t *batch = realm->microtasks;
++    realm->microtasks = realm->microtasks_tail = NULL;
++    
++    while (batch) {
++      microtask_entry_t *entry = batch;
++      
++      batch = entry->next;
++      realm->microtasks_processing = batch;
++      
++      process_microtask_entry(js, entry);
++      microtask_entry_free(js, entry);
++    }
++  }
++}
++
++void process_microtasks(ant_t *js) {
++  process_microtasks_internal(js, true);
++}
++
++int has_pending_microtasks(ant_t *js) {
++  return js->timers.microtasks != NULL ? 1 : 0;
++}
++
++bool js_maybe_drain_microtasks(ant_t *js) {
++  if (!js) return false;
++  if (js->microtasks_draining) return false;
++  if (js->vm_exec_depth != 0) return false;
++  if (!has_pending_microtasks(js)) return false;
++  process_microtasks_internal(js, true);
++  return true;
++}
++
++bool js_maybe_drain_microtasks_after_async_settle(ant_t *js) {
++  if (!js) return false;
++
++  if (js->microtasks_draining) return false;
++  if (!has_pending_microtasks(js)) return false;
++
++  process_microtasks_internal(js, false);
++  return true;
++}
++
++void cleanup_timer_module(ant_t *js) {
++  ant_timer_state_t *t = &js->timers;
++  
++  ANT_ASSERT(!t->microtasks_processing, "cannot destroy an isolate while it runs a job batch");
++  ant_embed_microtasks_reset(js);
++
++  while (t->free_jobs) {
++    microtask_entry_t *next = t->free_jobs->next;
++    free(t->free_jobs);
++    t->free_jobs = next;
++  }
++  
++  t->free_job_count = 0;
++}
++
++static void gc_mark_jobs(ant_t *js, microtask_entry_t *m, gc_mark_fn mark) {
++  for (; m; m = m->next) {
++    mark(js, m->callback);
++    if (microtask_holds_coro(m->kind)) gc_mark_coroutine(js, m->u.coro);
++    else mark(js, m->u.promise);
++    for (uint8_t i = 0; i < m->argc; i++) mark(js, m->argv[i]);
++  }
++}
++
++
++void gc_mark_timers(ant_t *js, gc_mark_fn mark) {
++  gc_mark_jobs(js, js->timers.microtasks, mark);
++  gc_mark_jobs(js, js->timers.microtasks_processing, mark);
++  
++  for (ant_realm_t *realm = js->realms; realm; realm = realm->next) {
++    gc_mark_jobs(js, realm->microtasks, mark);
++    gc_mark_jobs(js, realm->microtasks_processing, mark);
++  }
++}
+diff --git a/src/embed/module_stubs.c b/src/embed/module_stubs.c
+new file mode 100644
+index 00000000..cc6e7146
+--- /dev/null
++++ b/src/embed/module_stubs.c
+@@ -0,0 +1,231 @@
++// Embed builds compile the core without the modules that need an operating
++// system (event loop, file system, network, processes, workers, N-API, Wasm,
++// ES module loading, watch mode). The core still calls their lifecycle and GC
++// hooks; here they do nothing, and the few that return something report that
++// the feature is not available.
++#include <stdbool.h>
++#include <stdlib.h>
++#include <string.h>
++
++#include "ant.h"
++#include "bootstrap.h"
++#include "errors.h"
++#include "utils.h"
++#include "esm/builtin_bundle.h"
++#include "esm/library.h"
++#include "esm/loader.h"
++#include "esm/remote.h"
++#include "gc/modules.h"
++#include "silver/jit.h"
++#include "wasm/wasm.h"
++#include "modules/abort.h"
++#include "modules/bigint.h"
++#include "modules/child_process.h"
++#include "modules/collections.h"
++#include "modules/dns.h"
++#include "modules/eventsource.h"
++#include "modules/fetch.h"
++#include "modules/fs.h"
++#include "modules/generator.h"
++#include "modules/isolate.h"
++#include "modules/buffer.h"
++#include "modules/vm.h"
++#include "modules/iterator.h"
++#include "modules/json.h"
++#include "modules/math.h"
++#include "modules/message_port.h"
++#include "modules/napi.h"
++#include "modules/navigator.h"
++#include "modules/net.h"
++#include "modules/performance.h"
++#include "modules/process.h"
++#include "modules/readline.h"
++#include "modules/regex.h"
++#include "modules/server.h"
++#include "modules/symbol.h"
++#include "modules/tls.h"
++#include "modules/util.h"
++#include "modules/worker_threads.h"
++
++// --- event loop (loop.c), HTTP client, WebSockets and watch mode ---
++// Declared in src/ant.c for embed builds: their own headers need libuv.
++
++bool Ant_Loop_Init(ant_t *js) {
++  (void)js;
++  return true;
++}
++
++void Ant_Loop_Drain(ant_t *js) { (void)js; }
++void Ant_Loop_Destroy(ant_t *js) { (void)js; }
++
++void ant_http_pool_free(struct ant_http_pool *pool) { (void)pool; }
++void cleanup_websocket_module(ant_t *js) { (void)js; }
++
++bool ant_watch_supervises(ant_t *js) {
++  (void)js;
++  return false;
++}
++
++ant_value_t ant_watch_exit(ant_t *js) {
++  (void)js;
++  return js_mkundef();
++}
++
++// --- realms (node:vm): the built-ins this build has, as for the first realm ---
++
++void ant_bootstrap_realm_intrinsics(ant_t *js) {
++  init_symbol_ctor(js);
++  init_intrinsic_symbols(js);
++  init_iterator_module(js);
++  init_generator_module(js);
++  init_math_module(js);
++  init_bigint_module(js);
++  init_regex_module(js);
++  init_collections_module(js);
++  init_json_module(js);
++}
++
++// --- console formatting (modules/util.c) ---
++
++// No printf-style substitution: console.log prints every argument as is.
++int ant_format_walk(
++  ant_native_params_t, int fmt_index,
++  const ant_format_sink_t *sink, void *ctx
++) {
++  (void)js;
++  (void)args;
++  (void)nargs;
++  (void)sink;
++  (void)ctx;
++  return fmt_index;
++}
++
++// --- ES modules ---
++
++bool esm_has_builtin_scheme(const char *specifier) {
++  (void)specifier;
++  return false;
++}
++
++bool esm_is_url(const char *spec) {
++  (void)spec;
++  return false;
++}
++
++bool esm_is_data_url(const char *spec) {
++  (void)spec;
++  return false;
++}
++
++ant_value_t js_esm_make_file_url(ant_t *js, const char *path) {
++  static const char prefix[] = "file://";
++  size_t len = strlen(path);
++  char *url = malloc(sizeof prefix + len);
++  if (!url) return js_mkerr_typed(js, JS_ERR_RANGE, "out of memory");
++  memcpy(url, prefix, sizeof prefix - 1);
++  memcpy(url + sizeof prefix - 1, path, len + 1);
++  ant_value_t out = js_mkstr(js, url, sizeof prefix - 1 + len);
++  free(url);
++  return out;
++}
++
++ant_value_t js_esm_resolve_specifier(ant_t *js, ant_value_t specifier, const char *base_path) {
++  (void)specifier;
++  (void)base_path;
++  return js_mkerr_typed(js, JS_ERR_TYPE, "module imports are not available in this embed build");
++}
++
++void ant_library_cache_free(ant_t *js) { (void)js; }
++
++// --- modules that are not built: lifecycle and GC hooks ---
++
++bool ant_worker_report_uncaught(ant_t *js, ant_value_t reason) {
++  (void)js;
++  (void)reason;
++  return false;
++}
++
++void cleanup_abort_module(ant_t *js) { (void)js; }
++void cleanup_child_process_module(ant_t *js) { (void)js; }
++void cleanup_dns_module(ant_t *js) { (void)js; }
++void cleanup_eventsource_module(ant_t *js) { (void)js; }
++void cleanup_fetch_module(ant_t *js) { (void)js; }
++void cleanup_fs_module(ant_t *js) { (void)js; }
++void cleanup_isolate_module(ant_t *js) { (void)js; }
++void cleanup_message_port_module(ant_t *js) { (void)js; }
++void cleanup_napi_module(ant_t *js) { (void)js; }
++void cleanup_navigator_module(ant_t *js) { (void)js; }
++void cleanup_net_module(ant_t *js) { (void)js; }
++void cleanup_performance_module(ant_t *js) { (void)js; }
++void cleanup_process_module(ant_t *js) { (void)js; }
++void cleanup_readline_module(ant_t *js) { (void)js; }
++void cleanup_server_module(ant_t *js) { (void)js; }
++void cleanup_tls_module(ant_t *js) { (void)js; }
++void cleanup_worker_threads_module(ant_t *js) { (void)js; }
++void free_napi_module(ant_t *js) { (void)js; }
++void free_process_module(ant_t *js) { (void)js; }
++void wasm_isolate_destroy(ant_t *js) { (void)js; }
++void ts_strip_thread_cleanup(void) {}
++
++void gc_mark_dns(ant_t *js, gc_mark_fn mark) { (void)js; (void)mark; }
++void gc_mark_isolates(ant_t *js, gc_mark_fn mark) { (void)js; (void)mark; }
++void gc_mark_message_ports(ant_t *js, gc_mark_fn mark) { (void)js; (void)mark; }
++
++// No streams are created without modules/stream.c.
++void gc_mark_stream_object(ant_t *js, ant_value_t value, gc_mark_fn mark) {
++  (void)js;
++  (void)value;
++  (void)mark;
++}
++
++void gc_finalize_stream_object(ant_t *js, ant_value_t value) {
++  (void)js;
++  (void)value;
++}
++
++// --- JIT (see jit_stub.c) ---
++
++void sv_jit_drop_all_code(ant_t *js) { (void)js; }
++
++// --- typed arrays (modules/buffer.c): none exist in this build ---
++
++buffer_ta_access_t buffer_typedarray_inline_get(ant_value_t obj, ant_value_t key, TypedArrayType *type) {
++  (void)obj;
++  (void)key;
++  (void)type;
++  return BUFFER_TA_ACCESS_NONE;
++}
++
++buffer_ta_access_t buffer_typedarray_inline_put(ant_value_t obj, ant_value_t key, ant_value_t value, TypedArrayType *type) {
++  (void)obj;
++  (void)key;
++  (void)value;
++  (void)type;
++  return BUFFER_TA_ACCESS_NONE;
++}
++
++bool buffer_typedarray_get_index(ant_t *js, ant_value_t obj, uint32_t index, ant_value_t *out) {
++  (void)js;
++  (void)obj;
++  (void)index;
++  (void)out;
++  return false;
++}
++
++bool buffer_typedarray_set_index(ant_t *js, ant_value_t obj, uint32_t index, ant_value_t value, ant_value_t *result) {
++  (void)js;
++  (void)obj;
++  (void)index;
++  (void)value;
++  (void)result;
++  return false;
++}
++
++// --- import() (modules/vm.c) ---
++
++ant_value_t js_vm_dynamic_import(ant_t *js, sv_code_unit_t *unit, ant_value_t specifier, ant_value_t options) {
++  (void)unit;
++  (void)specifier;
++  (void)options;
++  return js_mkerr_typed(js, JS_ERR_TYPE, "module imports are not available in this embed build");
++}
+diff --git a/src/embed/stubs.c b/src/embed/stubs.c
+index 9ff883f6..bee7e81a 100644
+--- a/src/embed/stubs.c
++++ b/src/embed/stubs.c
+@@ -47,9 +47,9 @@ ANT_EMBED_GC_STUB(gc_mark_napi)
+ ANT_EMBED_GC_STUB(gc_mark_rpc)
+ ANT_EMBED_GC_STUB(gc_mark_sandbox)
+ 
+-void gc_clear_napi_weak_refs(ant_t *js, bool minor) {
++void gc_clear_napi_weak_refs(ant_t *js, gc_weak_key_alive_fn alive) {
+   (void)js;
+-  (void)minor;
++  (void)alive;
+ }
+ 
+ void gc_mark_abort_signal_object(
+@@ -156,264 +156,6 @@ blob_data_t *blob_get_data(ant_value_t obj) {
+   return NULL;
+ }
+ 
+-enum {
+-  EMBED_MICROTASK_CALLBACK,
+-  EMBED_MICROTASK_PROMISE_TRIGGER,
+-  EMBED_MICROTASK_THENABLE,
+-  EMBED_MICROTASK_AWAIT,
+-};
+-
+-typedef struct embed_microtask {
+-  ant_value_t callback;
+-  union {
+-    ant_value_t promise;
+-    ant_value_t this_value;
+-    coroutine_t *coroutine;
+-  } target;
+-  struct embed_microtask *next;
+-  uint8_t argument_count;
+-  uint8_t kind;
+-  ant_value_t arguments[];
+-} embed_microtask_t;
+-
+-static struct {
+-  ant_t *js;
+-  embed_microtask_t *head;
+-  embed_microtask_t *tail;
+-  embed_microtask_t *processing;
+-} embed_microtasks;
+-
+-static void embed_microtask_discard(
+-  ant_t *js, embed_microtask_t *task
+-) {
+-  if (task->kind == EMBED_MICROTASK_PROMISE_TRIGGER)
+-    js_mark_promise_trigger_dequeued(js, task->target.promise);
+-  else if (task->kind == EMBED_MICROTASK_AWAIT) {
+-    coroutine_clear_await_registration(task->target.coroutine);
+-    coroutine_release(task->target.coroutine);
+-  }
+-  free(task);
+-}
+-
+-void ant_embed_microtasks_reset(ant_t *js) {
+-  embed_microtask_t *task = embed_microtasks.processing;
+-  while (task) {
+-    embed_microtask_t *next = task->next;
+-    embed_microtask_discard(js, task);
+-    task = next;
+-  }
+-  task = embed_microtasks.head;
+-  while (task) {
+-    embed_microtask_t *next = task->next;
+-    embed_microtask_discard(js, task);
+-    task = next;
+-  }
+-  memset(&embed_microtasks, 0, sizeof(embed_microtasks));
+-}
+-
+-static void embed_microtask_append(
+-  ant_t *js, embed_microtask_t *task
+-) {
+-  if (embed_microtasks.js && embed_microtasks.js != js)
+-    ant_embed_microtasks_reset(embed_microtasks.js);
+-  embed_microtasks.js = js;
+-  if (embed_microtasks.tail)
+-    embed_microtasks.tail->next = task;
+-  else
+-    embed_microtasks.head = task;
+-  embed_microtasks.tail = task;
+-}
+-
+-void queue_microtask(ant_t *js, ant_value_t callback) {
+-  embed_microtask_t *task = calloc(1, sizeof(*task));
+-  if (!task) return;
+-  task->callback = callback;
+-  task->target.promise = js_mkundef();
+-  embed_microtask_append(js, task);
+-}
+-
+-void queue_microtask_with_args(
+-  ant_t *js, ant_value_t callback, ant_value_t *args, int nargs
+-) {
+-  if (nargs <= 0) {
+-    queue_microtask(js, callback);
+-    return;
+-  }
+-  if (nargs > UINT8_MAX) return;
+-  embed_microtask_t *task = calloc(
+-    1, sizeof(*task) + (size_t)nargs * sizeof(*task->arguments)
+-  );
+-  if (!task) return;
+-  task->callback = callback;
+-  task->target.promise = js_mkundef();
+-  task->argument_count = (uint8_t)nargs;
+-  memcpy(task->arguments, args, (size_t)nargs * sizeof(*args));
+-  embed_microtask_append(js, task);
+-}
+-
+-void queue_promise_trigger(ant_t *js, ant_value_t promise) {
+-  if (!js_mark_promise_trigger_queued(js, promise)) return;
+-  embed_microtask_t *task = calloc(1, sizeof(*task));
+-  if (!task) {
+-    js_mark_promise_trigger_dequeued(js, promise);
+-    return;
+-  }
+-  task->callback = js_mkundef();
+-  task->target.promise = promise;
+-  task->kind = EMBED_MICROTASK_PROMISE_TRIGGER;
+-  embed_microtask_append(js, task);
+-}
+-
+-bool queue_promise_thenable_job(
+-  ant_t *js, ant_value_t promise, ant_value_t thenable, ant_value_t then_fn
+-) {
+-  embed_microtask_t *task = calloc(
+-    1, sizeof(*task) + sizeof(*task->arguments)
+-  );
+-  if (!task) return false;
+-  task->callback = then_fn;
+-  task->target.this_value = thenable;
+-  task->argument_count = 1;
+-  task->kind = EMBED_MICROTASK_THENABLE;
+-  task->arguments[0] = promise;
+-  embed_microtask_append(js, task);
+-  return true;
+-}
+-
+-bool queue_await_resume_job(coroutine_t *coro, ant_value_t value) {
+-  if (!coro || !coro->js) return false;
+-  embed_microtask_t *task = calloc(1, sizeof(*task));
+-  if (!task) return false;
+-  task->callback = value;
+-  task->target.coroutine = coro;
+-  task->kind = EMBED_MICROTASK_AWAIT;
+-  coroutine_retain(coro);
+-  embed_microtask_append(coro->js, task);
+-  return true;
+-}
+-
+-static void embed_process_microtask(
+-  ant_t *js, embed_microtask_t *task
+-) {
+-  if (task->kind == EMBED_MICROTASK_PROMISE_TRIGGER) {
+-    GC_ROOT_SAVE(root_mark, js);
+-    ant_value_t promise = task->target.promise;
+-    GC_ROOT_PIN(js, promise);
+-    js_mark_promise_trigger_dequeued(js, promise);
+-    js_process_promise_handlers(js, promise);
+-    GC_ROOT_RESTORE(js, root_mark);
+-    return;
+-  }
+-
+-  if (task->kind == EMBED_MICROTASK_THENABLE) {
+-    js_process_promise_thenable_job(
+-      js, task->arguments[0], task->target.this_value, task->callback
+-    );
+-    return;
+-  }
+-
+-  if (task->kind == EMBED_MICROTASK_AWAIT) {
+-    GC_ROOT_SAVE(root_mark, js);
+-    ant_value_t value = task->callback;
+-    coroutine_t *coro = task->target.coroutine;
+-    GC_ROOT_PIN(js, value);
+-    if (coro->await_registered)
+-      Ant_Coroutine_SettleAndResume(js, coro, value, false);
+-    coroutine_release(coro);
+-    GC_ROOT_RESTORE(js, root_mark);
+-    return;
+-  }
+-
+-  GC_ROOT_SAVE(root_mark, js);
+-  ant_value_t callback = task->callback;
+-  GC_ROOT_PIN(js, callback);
+-  for (uint8_t index = 0; index < task->argument_count; index++)
+-    GC_ROOT_PIN(js, task->arguments[index]);
+-  sv_vm_call(
+-    js->vm, js, callback, js_mkundef(), task->arguments,
+-    task->argument_count, NULL, js_mkundef()
+-  );
+-  GC_ROOT_RESTORE(js, root_mark);
+-}
+-
+-static bool embed_drain_microtasks(
+-  ant_t *js, bool check_rejections, bool require_job_boundary
+-) {
+-  if (!js || js->microtasks_draining ||
+-      (require_job_boundary && js->vm_exec_depth != 0) ||
+-      embed_microtasks.head == NULL)
+-    return false;
+-
+-  bool at_job_boundary = js->vm_exec_depth == 0;
+-  bool interrupted = false;
+-  js->microtasks_draining = true;
+-  while (embed_microtasks.head) {
+-    embed_microtask_t *batch = embed_microtasks.head;
+-    embed_microtasks.head = NULL;
+-    embed_microtasks.tail = NULL;
+-    embed_microtasks.processing = batch;
+-
+-    while (batch) {
+-      embed_microtask_t *task = batch;
+-      batch = task->next;
+-      embed_microtasks.processing = batch;
+-      embed_process_microtask(js, task);
+-      free(task);
+-      if (ant_embed_should_interrupt(js)) {
+-        interrupted = true;
+-        ant_embed_microtasks_reset(js);
+-        break;
+-      }
+-    }
+-    if (interrupted) break;
+-  }
+-
+-  embed_microtasks.processing = NULL;
+-  if (check_rejections && !interrupted) js_check_unhandled_rejections(js);
+-  js->microtasks_draining = false;
+-  if (at_job_boundary) gc_weak_clear_kept_alive(js);
+-  return true;
+-}
+-
+-void process_microtasks(ant_t *js) {
+-  embed_drain_microtasks(js, true, false);
+-}
+-
+-bool js_maybe_drain_microtasks(ant_t *js) {
+-  return embed_drain_microtasks(js, true, true);
+-}
+-
+-bool js_maybe_drain_microtasks_after_async_settle(ant_t *js) {
+-  return embed_drain_microtasks(js, false, false);
+-}
+-
+-int has_pending_microtasks(ant_t *js) {
+-  (void)js;
+-  return embed_microtasks.head != NULL;
+-}
+-
+-void cleanup_timer_module(ant_t *js) { (void)js; }
+-
+-void gc_mark_timers(ant_t *js, gc_mark_fn mark) {
+-  embed_microtask_t *lists[] = {
+-    embed_microtasks.head,
+-    embed_microtasks.processing,
+-  };
+-  for (size_t list = 0; list < sizeof(lists) / sizeof(lists[0]); list++) {
+-    for (embed_microtask_t *task = lists[list]; task; task = task->next) {
+-      mark(js, task->callback);
+-      if (task->kind == EMBED_MICROTASK_AWAIT)
+-        gc_mark_coroutine(js, task->target.coroutine);
+-      else if (task->kind == EMBED_MICROTASK_THENABLE)
+-        mark(js, task->target.this_value);
+-      else
+-        mark(js, task->target.promise);
+-      for (uint8_t index = 0; index < task->argument_count; index++)
+-        mark(js, task->arguments[index]);
+-    }
+-  }
+-}
+-
+ bool js_fire_unhandled_rejection(
+   ant_t *js, ant_value_t promise_val, ant_value_t reason
+ ) {

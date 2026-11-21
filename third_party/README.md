@@ -6,7 +6,7 @@ Every submodule has `ignore = dirty`, so build output inside it does not show in
 
 | Submodule | Upstream | Pinned at | Used by |
 |---|---|---|---|
-| `ant/` | https://github.com/theMackabu/ant | `v16.5.c41757b4.0` | `firmware/engines/ant` |
+| `ant/` | https://github.com/theMackabu/ant | `v16.5.c41757b4.0`, plus [`patches/ant/`](patches/ant/) | `firmware/engines/ant` |
 | `duktape/` | https://github.com/svaarala/duktape | `v2.7.0` (`03d4d72`) | reference only; the build uses [`duktape-dist/`](#duktape-dist) |
 | `jerryscript/` | https://github.com/jerryscript-project/jerryscript | `v3.0.0` | `firmware/engines/jerryscript` |
 | `mjs/` | https://github.com/cesanta/mjs | `0f14182` (main; no releases) | `firmware/engines/mjs` (GPLv2) |

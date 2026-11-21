@@ -31,8 +31,8 @@ first of `main.js`, `index.js`, `main.mjs`, `index.mjs`. A script is one file
 today; `import` / `export` is planned for engines that support ES modules.
 
 TypeScript is compiled with your own `tsc` against the `@jsbedded` typings, for
-the engine's language level. Engines that accept TypeScript (Ant) will run it
-directly. If a script stops the board from working, use
+the engine's language level, and the `.js` output goes on the drive. If a script stops
+the board from working, use
 [dev mode](./guide/recovery.md).
 
 ## Security

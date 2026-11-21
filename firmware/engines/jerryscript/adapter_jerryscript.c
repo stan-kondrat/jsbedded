@@ -60,30 +60,25 @@ void jerry_port_fatal(jerry_fatal_code_t code)
 
     switch (code) {
     case JERRY_FATAL_OUT_OF_MEMORY:
-        what = "out of memory";
+        what = "JerryScript: out of memory";
         break;
     case JERRY_FATAL_REF_COUNT_LIMIT:
-        what = "reference count limit";
+        what = "JerryScript: reference count limit";
         break;
     case JERRY_FATAL_UNTERMINATED_GC_LOOPS:
-        what = "unterminated GC loops";
+        what = "JerryScript: unterminated GC loops";
         break;
     case JERRY_FATAL_DISABLED_BYTE_CODE:
-        what = "disabled byte code";
+        what = "JerryScript: disabled byte code";
         break;
     case JERRY_FATAL_FAILED_ASSERTION:
-        what = "failed assertion";
+        what = "JerryScript: failed assertion";
         break;
     default:
-        what = "unknown";
+        what = "JerryScript: unknown fatal error";
         break;
     }
-    console_print("JSBedded: JerryScript fatal error: ");
-    console_print(what);
-    console_print("; halted\r\n");
-    for (;;) {
-        jsb_hal_sleep_ms(1000);
-    }
+    jsb_hal_fatal(what, NULL, 0); /* crash record (CRASH.TXT), then restart */
 }
 
 void jerry_port_sleep(uint32_t sleep_time)

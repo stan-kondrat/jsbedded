@@ -50,10 +50,22 @@ void jsb_storage_unmount(void);
  */
 void jsb_storage_provision(void);
 
+/*
+ * Write the [firmware] section of config.ini (firmware version, board, engine,
+ * engine version and image id) if it is missing or out of date, e.g. after flashing
+ * another image. Does nothing when config.ini is absent. Called at every boot.
+ * Returns true if the section changed: the first boot after flashing new firmware
+ * (or the section was missing or edited); false if unchanged or not known.
+ */
+bool jsb_storage_update_firmware_info(void);
+
+/* Create or replace a text file on the mounted drive (CRASH.TXT). Failures are reported. */
+void jsb_storage_write_text(const char *name, const char *text);
+
 /* True if jsb_storage_mount() formatted the drive in this boot. */
 bool jsb_storage_was_formatted(void);
 
-/* Read [devmode] settings from config.ini on the mounted drive into *cfg (defaults if absent). */
+/* Read the [devmode] settings from config.ini on the mounted drive into *cfg (defaults if absent). */
 void jsb_storage_load_config(jsb_config *cfg);
 
 #endif

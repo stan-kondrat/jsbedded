@@ -29,6 +29,27 @@ set(JSB_ENGINE_COMPILE_OPTIONS)
 set(JSB_ENGINE_LINK_LIBRARIES)
 include(${JSB_FIRMWARE_DIR}/engines/${JSB_ENGINE}/engine.cmake)
 
+# Engine version for config.ini's [firmware] section: an engine.cmake may set
+# JSB_ENGINE_VERSION; otherwise it is git describe of the engine's first submodule.
+if(NOT JSB_ENGINE_VERSION)
+    set(JSB_ENGINE_VERSION "-")
+    file(READ ${JSB_FIRMWARE_DIR}/engines/${JSB_ENGINE}/engine.json _jsb_engine_json)
+    string(JSON _jsb_engine_nsubs ERROR_VARIABLE _jsb_json_err LENGTH "${_jsb_engine_json}" submodules)
+    if(NOT _jsb_json_err AND _jsb_engine_nsubs GREATER 0)
+        string(JSON _jsb_engine_sub GET "${_jsb_engine_json}" submodules 0)
+        find_package(Git QUIET)
+        if(GIT_FOUND)
+            execute_process(COMMAND ${GIT_EXECUTABLE} -C ${JSB_FIRMWARE_DIR}/../${_jsb_engine_sub}
+                                    describe --tags --always --dirty
+                            OUTPUT_VARIABLE _jsb_engine_describe OUTPUT_STRIP_TRAILING_WHITESPACE
+                            ERROR_QUIET RESULT_VARIABLE _jsb_git_rc)
+            if(_jsb_git_rc EQUAL 0 AND _jsb_engine_describe)
+                set(JSB_ENGINE_VERSION "${_jsb_engine_describe}")
+            endif()
+        endif()
+    endif()
+endif()
+
 # Boot script -> C array (jsb_script, jsb_script_len, jsb_script_name in jsb/core.h).
 if(NOT JSB_SCRIPT)
     set(JSB_SCRIPT ${JSB_FIRMWARE_DIR}/core/boot.js)
@@ -62,6 +83,7 @@ endif()
 
 set(JSB_CORE_SOURCES
     ${JSB_FIRMWARE_DIR}/core/src/main.c
+    ${JSB_FIRMWARE_DIR}/core/src/crash.c
     ${JSB_FIRMWARE_DIR}/core/src/timers.c
     ${JSB_FIRMWARE_DIR}/core/src/board.c
     ${JSB_FIRMWARE_DIR}/api/console/console.c
@@ -101,6 +123,7 @@ set(JSB_CORE_DEFINITIONS
     JSB_BOARD="${JSB_BOARD}"
     JSB_VERSION="${JSB_VERSION}"
     JSB_ENGINE="${JSB_ENGINE}"
+    JSB_ENGINE_VERSION="${JSB_ENGINE_VERSION}"
     ${JSB_ENGINE_DEFINITIONS}
 )
 if(JSB_STORAGE)

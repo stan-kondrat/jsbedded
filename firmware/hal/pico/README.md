@@ -20,6 +20,13 @@ HAL implementation on the Raspberry Pi Pico SDK (RP2040 and RP2350).
 - Dev mode (`devmode.c`): BOOTSEL is sampled every 50 ms from a timer; held 2 s
   and released, the board restarts in dev mode (flag in watchdog scratch 0).
   See [recovery](../../../docs/guide/recovery.md).
+- Crash record (`crash.c`): `isr_hardfault`, `__assert_func`, `abort`, `_exit`
+  (which the SDK's `panic` ends in) and `jsb_hal_fatal` save registers, message
+  and the current step in `__uninitialized_ram`, then restart through the
+  watchdog (armed first, so a second fault still restarts). `jsb_hal_image_id()`
+  is an FNV-1a hash of the flash image (`__flash_binary_start` to
+  `__flash_binary_end`), computed once in `jsb_hal_init`. See
+  [recovery](../../../docs/guide/recovery.md#crash-report-pico-family).
 - Build: `make -C firmware BOARD=pico2` (needs `cmake`, `ninja`, `arm-none-eabi-gcc`, Python 3 and a host C/C++ compiler for picotool; see [CONTRIBUTING.md](../../../CONTRIBUTING.md#required-software)).
   The SDK builds `picotool` on first use; set `PICOTOOL_FETCH_FROM_GIT_PATH` to
   keep it outside `build/`.

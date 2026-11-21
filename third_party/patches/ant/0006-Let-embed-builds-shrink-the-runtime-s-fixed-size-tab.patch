@@ -1,0 +1,400 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: JSBedded <noreply@jsbedded.invalid>
+Date: Sat, 21 Nov 2026 00:00:00 +0000
+Subject: [PATCH 6/9] Let embed builds shrink the runtime's fixed-size tables
+
+Not sent upstream yet (upstream ask 2 in JSBedded's
+firmware/engines/ant/README.md, for the tables outside the GC heap).
+
+Besides the GC arenas, creating an isolate and running a small script
+allocates a number of tables and buffers sized for a desktop: 64-128 KB
+pool blocks per size class, 64 KB code and intern chunks, a 64 KB
+output buffer, 1024-entry GC rosters and intern caches, 16 KB C-stack
+scratch in the compiler and 12 KB in the error renderer, and static
+handle tables of several KB. On a target with 264 KB of SRAM these
+alone exceed the heap.
+
+Each one gets an ANT_EMBED_* override that only applies under
+ANT_EMBED; without it nothing changes:
+
+- pools: ANT_EMBED_POOL_{ROPE,SYMBOL,BIGINT,STRING}_BLOCK_SIZE,
+  ANT_EMBED_POOL_CLASS_MIN_ITEMS
+- handles: ANT_EMBED_CFUNC_SLAB_SIZE, ANT_EMBED_EXTERNAL_CHUNK_BITS,
+  ANT_EMBED_EXTERNAL_CHUNK_COUNT, ANT_EMBED_REGISTRY_BUCKET_BITS
+- code and strings: ANT_EMBED_CODE_ARENA_BLOCK_SIZE,
+  ANT_EMBED_CODE_UNIT_BLOCK_SIZE, ANT_EMBED_INTERN_CHUNK_SIZE,
+  ANT_EMBED_INTERN_INDEX_CACHE_SIZE, ANT_EMBED_OUTPUT_INITIAL_CAP
+- GC: ANT_EMBED_GC_ROSTER_CAP
+- C stack: ANT_EMBED_STRINGIFY_DEPTH, ANT_EMBED_STACK_DEPTH_SCRATCH,
+  ANT_EMBED_ERROR_LINE_BYTES
+- ANT_EMBED_SHAPE_TRANSITION_MAX_PROPS, and ANT_EMBED_COMPACT_TABLES
+  (shape indexes and pointer-pair maps grow at 3/4 load, property
+  arrays 8 entries at a time).
+
+ant_shape_index_layout() keeps its own 1024-property threshold
+(SHAPE_INDEX_LAYOUT_MIN_PROPS), so lowering the transition limit does
+not change when that layout is used.
+---
+ include/isolate.h      | 12 ++++++++++++
+ include/pool.h         | 22 ++++++++++++++++++++++
+ include/runtime.h      |  4 ++++
+ src/ant.c              |  4 ++++
+ src/error_render.c     |  4 ++++
+ src/gc/objects.c       | 10 ++++++++--
+ src/handles.c          | 25 ++++++++++++++++++++++++-
+ src/output.c           |  4 ++++
+ src/pool.c             |  4 ++++
+ src/ptr.c              |  5 +++++
+ src/shapes.c           | 31 +++++++++++++++++++++++++------
+ src/silver/code_unit.c |  4 ++++
+ src/silver/compiler.c  |  4 ++++
+ 13 files changed, 124 insertions(+), 9 deletions(-)
+
+diff --git a/include/isolate.h b/include/isolate.h
+index b7334332..319be3ef 100644
+--- a/include/isolate.h
++++ b/include/isolate.h
+@@ -54,15 +54,27 @@ typedef struct ant_array_join_frame {
+   ant_value_t receiver;
+ } ant_array_join_frame_t;
+ 
++#if defined(ANT_EMBED) && defined(ANT_EMBED_STRINGIFY_DEPTH)
++static constexpr int MAX_STRINGIFY_DEPTH   = ANT_EMBED_STRINGIFY_DEPTH;
++#else
+ static constexpr int MAX_STRINGIFY_DEPTH   = 64;
++#endif
+ static constexpr int MAX_PROTO_CHAIN_DEPTH = 256;
++#if defined(ANT_EMBED) && defined(ANT_EMBED_STRINGIFY_DEPTH)
++static constexpr int MAX_MULTIREF_OBJS     = ANT_EMBED_STRINGIFY_DEPTH;
++#else
+ static constexpr int MAX_MULTIREF_OBJS     = 128;
++#endif
+ static constexpr int MAX_DENSE_INITIAL_CAP = 8;
+ 
+ // new Array(n) allocates dense storage for the whole length up to this
+ // many elements, so filling it stays on the fast path
+ static constexpr uint32_t MAX_DENSE_PREALLOC_LEN = 65536;
++#if defined(ANT_EMBED) && defined(ANT_EMBED_INTERN_INDEX_CACHE_SIZE)
++static constexpr uint32_t INTERN_INDEX_CACHE_SIZE = ANT_EMBED_INTERN_INDEX_CACHE_SIZE;
++#else
+ static constexpr uint32_t INTERN_INDEX_CACHE_SIZE = 1024;
++#endif
+ static constexpr uint32_t ANT_RUNTIME_WEB_COMPAT = 1u << 0;
+ 
+ static constexpr uint32_t INTERN_MEMO_SIZE = 64;
+diff --git a/include/pool.h b/include/pool.h
+index b3bb8cb3..390291d0 100644
+--- a/include/pool.h
++++ b/include/pool.h
+@@ -23,10 +23,32 @@ struct ant_pool_block {
+   uint8_t data[];
+ };
+ 
++// Each size class takes a whole block on first use; embed targets with a
++// small heap can shrink them (larger allocations still get their own block).
++#ifndef ANT_EMBED_POOL_ROPE_BLOCK_SIZE
++#define ANT_EMBED_POOL_ROPE_BLOCK_SIZE (64u * 1024u)
++#endif
++#ifndef ANT_EMBED_POOL_SYMBOL_BLOCK_SIZE
++#define ANT_EMBED_POOL_SYMBOL_BLOCK_SIZE (32u * 1024u)
++#endif
++#ifndef ANT_EMBED_POOL_BIGINT_BLOCK_SIZE
++#define ANT_EMBED_POOL_BIGINT_BLOCK_SIZE (64u * 1024u)
++#endif
++#ifndef ANT_EMBED_POOL_STRING_BLOCK_SIZE
++#define ANT_EMBED_POOL_STRING_BLOCK_SIZE (128u * 1024u)
++#endif
++
++#ifdef ANT_EMBED
++static constexpr size_t ANT_POOL_ROPE_BLOCK_SIZE   = ANT_EMBED_POOL_ROPE_BLOCK_SIZE;
++static constexpr size_t ANT_POOL_SYMBOL_BLOCK_SIZE = ANT_EMBED_POOL_SYMBOL_BLOCK_SIZE;
++static constexpr size_t ANT_POOL_BIGINT_BLOCK_SIZE = ANT_EMBED_POOL_BIGINT_BLOCK_SIZE;
++static constexpr size_t ANT_POOL_STRING_BLOCK_SIZE = ANT_EMBED_POOL_STRING_BLOCK_SIZE;
++#else
+ static constexpr size_t ANT_POOL_ROPE_BLOCK_SIZE   = 64u * 1024u;
+ static constexpr size_t ANT_POOL_SYMBOL_BLOCK_SIZE = 32u * 1024u;
+ static constexpr size_t ANT_POOL_BIGINT_BLOCK_SIZE = 64u * 1024u;
+ static constexpr size_t ANT_POOL_STRING_BLOCK_SIZE = 128u * 1024u;
++#endif
+ 
+ static constexpr uint16_t ANT_ROPE_FLAG_YOUNG = 1u;
+ static constexpr uint16_t ANT_ROPE_DEPTH_SATURATED = UINT16_MAX;
+diff --git a/include/runtime.h b/include/runtime.h
+index 17b193f8..0e81ac2a 100644
+--- a/include/runtime.h
++++ b/include/runtime.h
+@@ -4,7 +4,11 @@
+ #include "types.h"
+ struct arg_file;
+ 
++#if defined(ANT_EMBED) && defined(ANT_EMBED_CODE_ARENA_BLOCK_SIZE)
++#define CODE_ARENA_BLOCK_SIZE ANT_EMBED_CODE_ARENA_BLOCK_SIZE
++#else
+ #define CODE_ARENA_BLOCK_SIZE (64 * 1024)
++#endif
+ #define CODE_ARENA_ALIGNMENT  8u
+ 
+ typedef struct {
+diff --git a/src/ant.c b/src/ant.c
+index 19d072de..a9ab4d18 100644
+--- a/src/ant.c
++++ b/src/ant.c
+@@ -163,7 +163,11 @@ typedef struct {
+ } ant_symbol_heap_t;
+ 
+ static constexpr size_t INTERN_TABLE_MIN = 2048;
++#if defined(ANT_EMBED) && defined(ANT_EMBED_INTERN_CHUNK_SIZE)
++static constexpr size_t INTERN_CHUNK_SIZE = ANT_EMBED_INTERN_CHUNK_SIZE;
++#else
+ static constexpr size_t INTERN_CHUNK_SIZE = 64 * 1024;
++#endif
+ 
+ static ant_intern_table_t *intern_table_alloc(size_t cap) {
+   ant_intern_table_t *t = calloc(1, sizeof(*t) + cap * sizeof(t->slots[0]));
+diff --git a/src/error_render.c b/src/error_render.c
+index 148dd5db..80afc7e9 100644
+--- a/src/error_render.c
++++ b/src/error_render.c
+@@ -453,7 +453,11 @@ static bool append_error_context(
+   int gutter_w = count_digits_int(error_line_no);
+   int src_cols_limit = error_context_src_cols_limit(gutter_w);
+ 
++#if defined(ANT_EMBED) && defined(ANT_EMBED_ERROR_LINE_BYTES)
++  char tagged[ANT_EMBED_ERROR_LINE_BYTES]; char rendered[2 * ANT_EMBED_ERROR_LINE_BYTES];
++#else
+   char tagged[4096]; char rendered[8192];
++#endif
+   highlight_state hl_state = HL_STATE_INIT;
+ 
+   ant_offset_t cur = ctx_start;
+diff --git a/src/gc/objects.c b/src/gc/objects.c
+index f1fbb710..83c38351 100644
+--- a/src/gc/objects.c
++++ b/src/gc/objects.c
+@@ -154,7 +154,13 @@ void gc_unroot_pending_promise(ant_t *js, ant_object_t *obj) {
+ }
+ 
+ static constexpr size_t GC_REMEMBERED_ROSTER_RETAIN_CAP = 256;
++#if defined(ANT_EMBED) && defined(ANT_EMBED_GC_ROSTER_CAP)
++static constexpr size_t GC_YOUNG_ROSTER_INITIAL_CAP = ANT_EMBED_GC_ROSTER_CAP;
++static constexpr size_t GC_YOUNG_ROSTER_RETAIN_CAP = ANT_EMBED_GC_ROSTER_CAP;
++#else
++static constexpr size_t GC_YOUNG_ROSTER_INITIAL_CAP = 1024;
+ static constexpr size_t GC_YOUNG_ROSTER_RETAIN_CAP = 32768;
++#endif
+ 
+ static void *shrink_ptr_roster(void *entries, size_t *cap, size_t target_cap) {
+   if (*cap <= target_cap * 2) return entries;
+@@ -306,7 +312,7 @@ static void gc_clear_remembered_closures(ant_t *js) {
+ 
+ void gc_track_young_closure_slow(ant_t *js, struct sv_closure *c) {
+   if (js->young_closure_len >= js->young_closure_cap) {
+-    size_t new_cap = js->young_closure_cap ? js->young_closure_cap * 2 : 1024;
++    size_t new_cap = js->young_closure_cap ? js->young_closure_cap * 2 : GC_YOUNG_ROSTER_INITIAL_CAP;
+     struct sv_closure **entries = realloc(js->young_closures, new_cap * sizeof(*entries));
+     if (!entries) return;
+     js->young_closures = entries;
+@@ -317,7 +323,7 @@ void gc_track_young_closure_slow(ant_t *js, struct sv_closure *c) {
+ 
+ void gc_track_young_upvalue_slow(ant_t *js, struct sv_upvalue *uv) {
+   if (js->young_upvalue_len >= js->young_upvalue_cap) {
+-    size_t new_cap = js->young_upvalue_cap ? js->young_upvalue_cap * 2 : 1024;
++    size_t new_cap = js->young_upvalue_cap ? js->young_upvalue_cap * 2 : GC_YOUNG_ROSTER_INITIAL_CAP;
+     struct sv_upvalue **entries = realloc(js->young_upvalues, new_cap * sizeof(*entries));
+     if (!entries) return;
+     js->young_upvalues = entries;
+diff --git a/src/handles.c b/src/handles.c
+index 43ce71c7..41ac8c40 100644
+--- a/src/handles.c
++++ b/src/handles.c
+@@ -13,12 +13,35 @@
+ #include <stdbool.h>
+ #include <stdlib.h>
+ 
++// Handle tables. Small embed targets override the sizes: the bucket arrays and
++// the external chunk table are static, and native functions are allocated in
++// slabs of CFUNC_SLAB_SIZE bytes.
++#ifndef ANT_EMBED_CFUNC_SLAB_SIZE
++#define ANT_EMBED_CFUNC_SLAB_SIZE (64 * 1024)
++#endif
++#ifndef ANT_EMBED_EXTERNAL_CHUNK_BITS
++#define ANT_EMBED_EXTERNAL_CHUNK_BITS 10
++#endif
++#ifndef ANT_EMBED_EXTERNAL_CHUNK_COUNT
++#define ANT_EMBED_EXTERNAL_CHUNK_COUNT 4096
++#endif
++#ifndef ANT_EMBED_REGISTRY_BUCKET_BITS
++#define ANT_EMBED_REGISTRY_BUCKET_BITS 11
++#endif
++
+ enum {
++#ifdef ANT_EMBED
++  CFUNC_SLAB_SIZE = ANT_EMBED_CFUNC_SLAB_SIZE,
++  EXTERNAL_CHUNK_BITS = ANT_EMBED_EXTERNAL_CHUNK_BITS,
++  EXTERNAL_CHUNK_COUNT = ANT_EMBED_EXTERNAL_CHUNK_COUNT,
++  REGISTRY_BUCKET_BITS = ANT_EMBED_REGISTRY_BUCKET_BITS,
++#else
+   CFUNC_SLAB_SIZE = 64 * 1024,
+   EXTERNAL_CHUNK_BITS = 10,
+-  EXTERNAL_CHUNK_SIZE = 1 << EXTERNAL_CHUNK_BITS,
+   EXTERNAL_CHUNK_COUNT = 4096,
+   REGISTRY_BUCKET_BITS = 11,
++#endif
++  EXTERNAL_CHUNK_SIZE = 1 << EXTERNAL_CHUNK_BITS,
+   REGISTRY_BUCKET_COUNT = 1 << REGISTRY_BUCKET_BITS,
+ };
+ 
+diff --git a/src/output.c b/src/output.c
+index 5d0bd9ba..77e04f56 100644
+--- a/src/output.c
++++ b/src/output.c
+@@ -12,7 +12,11 @@
+ 
+ #include "output.h"
+ 
++#if defined(ANT_EMBED) && defined(ANT_EMBED_OUTPUT_INITIAL_CAP)
++#define ANT_OUTPUT_INITIAL_CAP ANT_EMBED_OUTPUT_INITIAL_CAP
++#else
+ #define ANT_OUTPUT_INITIAL_CAP 65536
++#endif
+ 
+ static _Thread_local ant_output_stream_t g_stdout_writer = { .stream = NULL };
+ static _Thread_local ant_output_stream_t g_stderr_writer = { .stream = NULL };
+diff --git a/src/pool.c b/src/pool.c
+index 2c7ff1cd..74f36ddc 100644
+--- a/src/pool.c
++++ b/src/pool.c
+@@ -27,6 +27,10 @@ int pool_size_class_index(size_t need) {
+ }
+ 
+ static inline size_t pool_class_block_items(size_t class_size) {
++#if defined(ANT_EMBED) && defined(ANT_EMBED_POOL_CLASS_MIN_ITEMS)
++  (void)class_size;
++  return ANT_EMBED_POOL_CLASS_MIN_ITEMS;
++#endif
+   if (class_size <= 256u) return 256u;
+   if (class_size <= 1024u) return 128u;
+   if (class_size <= 4096u) return 64u;
+diff --git a/src/ptr.c b/src/ptr.c
+index befc0380..38d49f84 100644
+--- a/src/ptr.c
++++ b/src/ptr.c
+@@ -23,7 +23,12 @@ void js_set_native_slow(ant_object_t *o, void *ptr, uint32_t tag) {
+ }
+ 
+ bool ant_ptr_pair_put(ant_ptr_pair_map_t *map, uintptr_t key_a, uintptr_t key_b, ant_value_t value) {
++#if defined(ANT_EMBED) && defined(ANT_EMBED_COMPACT_TABLES)
++  // Small heaps: grow at 3/4 load instead of 1/2.
++  if (!map->entries || (map->len + 1) * 4 > (map->mask + 1) * 3) {
++#else
+   if (!map->entries || (map->len + 1) * 2 > map->mask + 1) {
++#endif
+     uint32_t cap = map->entries ? (map->mask + 1) * 2 : 16;
+     ant_ptr_pair_entry_t *grown = calloc(cap, sizeof(*grown));
+     if (!grown) return false;
+diff --git a/src/shapes.c b/src/shapes.c
+index 82721740..3729017e 100644
+--- a/src/shapes.c
++++ b/src/shapes.c
+@@ -35,8 +35,15 @@ static constexpr uint64_t SHAPE_IDX_TOMB = UINT64_MAX;
+ 
+ static constexpr uint32_t SHAPE_IDX_MIN_CAP = 8;
+ static constexpr uint32_t SHAPE_COMPACT_MIN_TOMBSTONES = 32;
++// Past this many properties an object gets its own shape that grows in place
++// instead of a new shared shape per added key; small heaps want it low.
++#if defined(ANT_EMBED) && defined(ANT_EMBED_SHAPE_TRANSITION_MAX_PROPS)
++static constexpr uint32_t SHAPE_TRANSITION_MAX_PROPS = ANT_EMBED_SHAPE_TRANSITION_MAX_PROPS;
++#else
+ static constexpr uint32_t SHAPE_TRANSITION_MAX_PROPS = 1024;
++#endif
+ static constexpr uint32_t SHAPE_KEYED_TRANSITION_MAX_PROPS = 32;
++static constexpr uint32_t SHAPE_INDEX_LAYOUT_MIN_PROPS = 1024;
+ 
+ static constexpr size_t SHAPE_ENTRY_POOL_MAX = 1024;
+ static constexpr size_t SHAPE_ENTRY_SIZE = sizeof(shape_child_entry_t);
+@@ -220,9 +227,23 @@ static inline void shape_index_put(shape_index_entry_t *tab, uint32_t mask, uint
+   tab[i].slot = slot;
+ }
+ 
++// ANT_EMBED_COMPACT_TABLES trades a little lookup speed for memory: the index
++// fills to 3/4 before it grows and property arrays grow 8 entries at a time.
++#if defined(ANT_EMBED) && defined(ANT_EMBED_COMPACT_TABLES)
++static inline bool shape_index_full(uint32_t used, uint32_t cap) { return used * 4 >= cap * 3; }
++static inline uint32_t shape_props_next_cap(uint32_t cap, uint32_t needed) { (void)cap; return (needed + 7u) & ~7u; }
++#else
++static inline bool shape_index_full(uint32_t used, uint32_t cap) { return used * 2 >= cap; }
++static inline uint32_t shape_props_next_cap(uint32_t cap, uint32_t needed) {
++  uint32_t new_cap = cap ? cap * 2 : 8;
++  while (new_cap < needed) new_cap *= 2;
++  return new_cap;
++}
++#endif
++
+ static uint32_t shape_index_capacity(uint32_t needed) {
+   uint32_t cap = SHAPE_IDX_MIN_CAP;
+-  while (cap <= needed * 2) cap *= 2;
++  while (shape_index_full(needed, cap)) cap *= 2;
+   return cap;
+ }
+ 
+@@ -281,7 +302,7 @@ static bool shape_index_resize(ant_shape_t *shape, uint32_t needed) {
+ 
+ static bool shape_index_add(ant_shape_t *shape, uint64_t key, uint32_t slot) {
+   uint32_t cap = shape->descriptors->index ? shape->descriptors->index_mask + 1 : 0;
+-  if ((shape->descriptors->index_used + 1) * 2 >= cap && !shape_index_resize(shape, shape->descriptors->index_used + 1)) return false;
++  if (shape_index_full(shape->descriptors->index_used + 1, cap) && !shape_index_resize(shape, shape->descriptors->index_used + 1)) return false;
+ 
+   shape_index_put(shape->descriptors->index, shape->descriptors->index_mask, key, slot);
+   shape->descriptors->index_used++;
+@@ -309,9 +330,7 @@ static bool shape_ensure_capacity(ant_shape_t *shape, uint32_t needed) {
+   uint32_t cap = shape->descriptors->cap;
+   if (needed <= cap) return true;
+ 
+-  uint32_t new_cap = cap ? cap * 2 : 8;
+-  while (new_cap < needed) new_cap *= 2;
+-  return shape_props_reserve(shape, new_cap);
++  return shape_props_reserve(shape, shape_props_next_cap(cap, needed));
+ }
+ 
+ static shape_descriptors_t *shape_descriptors_copy_prefix(const ant_shape_t *shape, uint32_t extra) {
+@@ -713,7 +732,7 @@ ant_shape_t *ant_shape_clone_bulk(const ant_shape_t *shape, uint32_t extra) {
+ }
+ 
+ ant_shape_t *ant_shape_index_layout(ant_t *js, ant_shape_t **cache, const ant_shape_t *base, uint32_t count) {
+-  if (count < SHAPE_TRANSITION_MAX_PROPS) return NULL;
++  if (count < SHAPE_INDEX_LAYOUT_MIN_PROPS) return NULL;
+   
+   ant_shape_t *cached = *cache;
+   if (cached && cached->count == count && cached->inobj_limit == base->inobj_limit) return cached;
+diff --git a/src/silver/code_unit.c b/src/silver/code_unit.c
+index af584b67..f2338382 100644
+--- a/src/silver/code_unit.c
++++ b/src/silver/code_unit.c
+@@ -10,7 +10,11 @@
+ #include <stdlib.h>
+ #include <string.h>
+ 
++#if defined(ANT_EMBED) && defined(ANT_EMBED_CODE_UNIT_BLOCK_SIZE)
++static constexpr size_t SV_CODE_BLOCK_SIZE = ANT_EMBED_CODE_UNIT_BLOCK_SIZE;
++#else
+ static constexpr size_t SV_CODE_BLOCK_SIZE = 16 * 1024;
++#endif
+ static constexpr uint32_t SV_CODE_SPARE_MAX = 64;
+ 
+ struct sv_code_block {
+diff --git a/src/silver/compiler.c b/src/silver/compiler.c
+index da087a16..149e57fa 100644
+--- a/src/silver/compiler.c
++++ b/src/silver/compiler.c
+@@ -8277,7 +8277,11 @@ bool sv_op_stack_effect(const sv_func_t *func, const uint8_t *ip, int *pops, int
+   return true;
+ }
+ 
++#if defined(ANT_EMBED) && defined(ANT_EMBED_STACK_DEPTH_SCRATCH)
++static constexpr int STACK_DEPTH_SCRATCH = ANT_EMBED_STACK_DEPTH_SCRATCH;
++#else
+ static constexpr int STACK_DEPTH_SCRATCH = 512;
++#endif
+ 
+ static int sv_func_stack_depths(const sv_func_t *func, int *depth) {
+   const int len = func->code_len;

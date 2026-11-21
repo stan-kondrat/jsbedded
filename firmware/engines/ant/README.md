@@ -1,19 +1,76 @@
 # engines/ant
 
 Adapter for Ant (theMackabu/ant). Upstream: `third_party/ant` (https://github.com/theMackabu/ant),
-pinned at `v16.5.c41757b4.0`.
+pinned at `v16.5.c41757b4.0`. The build applies [`third_party/patches/ant/`](../../../third_party/patches/ant/)
+to a copy under `build/` (see `engine.cmake`); the submodule stays pristine.
 
-**Status: not feasible yet, so there is no `engine.cmake` (Ant is left out of CI).**
-Ant's smallest configuration, the interpreter-only Wasm embed, allocates
-several megabytes before running any JavaScript, and its embed profile only compiles
-for `__wasm__`. Every board has at most 520 KB of SRAM. The blockers below are
-compile-time constants and build-system issues in Ant. Each one can be fixed
-upstream, and none can be fixed from an adapter without patching
-`third_party/ant`.
+## Status (2026-11-21)
 
-This is a source-reading assessment (2026-10-27). Nothing was compiled or measured.
+**Builds for `pico` (RP2040). Not yet run on hardware.**
 
-## Minimal source set (interpreter + GC, no JIT/FFI/Wasm/NAPI/HTTP/Temporal)
+```bash
+make firmware BOARD=pico ENGINE=ant SCRIPT=examples/blink/main.js
+```
+
+Needs, besides the pico-sdk toolchain: Clang ≥ 18 (`clang`/`clang++` on `PATH`, or
+`JSB_ANT_CC`/`JSB_ANT_CXX`) and network access at configure time (the dependencies are
+downloaded with pinned SHA-256s, see "How it builds").
+
+What scripts get: Ant's core with Symbol, iterators, generators, Math, BigInt, RegExp,
+Map/Set/WeakMap/WeakSet, JSON, Promise and async/await, plus JSBedded's own APIs
+(`console`, timers, `board`). Not in this build: Date, typed arrays and `Buffer`, `import`,
+Intl, the Node/Web APIs, and printf-style `%` substitution in `console.log`. `Math.random`
+uses xorshift64* (not cryptographic).
+
+Measured on the blink image (arm-none-eabi-gcc 15.2.1 + Clang 19.1.7):
+
+| | Size |
+|---|---|
+| flash used | 1767 KB of 1792 KB (25 KB free) |
+| script drive | 256 KB (other engines keep 1 MB on `pico`; set in `boards/pico/board.mk`) |
+| static RAM (`.data` + `.bss`) | 28 KB of 264 KB |
+
+Not measured: heap use at startup and whether the blink script fits in RAM.
+
+### Patches
+
+One per upstream ask (below), each written as an upstream PR:
+
+| Patch | Upstream ask |
+|---|---|
+| `0001` generic `ANT_EMBED` profile, hooks in `include/embed.h` | 1 |
+| `0002` embed glue in `src/embed/`, `"embed"` source list in `sources.json` | 4 |
+| `0003` configurable heap geometry (`ANT_EMBED_ARENA_*`, `ANT_EMBED_HEAP_*`) | 2 |
+| `0004` configurable VM stack and C stack (`ANT_EMBED_VM_*`, `ANT_EMBED_C_STACK_SIZE`) | 3 |
+| `0005` single-threaded locks (`sync.h`) | 5 |
+| `0006` smaller fixed-size tables (pools, handles, caches, C-stack buffers) | 2 |
+| `0007` callee-saved register scan on Thumb-1 (Cortex-M0+) | – |
+| `0008` embed list that links without the OS modules (promise, arena, microtask queue, module stubs) | 4 |
+| `0009` two layout asserts that fail on 32-bit targets | – |
+
+`0008` and `0009` are needed because at this tag the embed build no longer compiles for any
+32-bit target, wasm32 included: `src/ant.c` calls the event loop, N-API, Wasm and ESM code
+unconditionally, and two `static_assert`s only hold with 8-byte pointers.
+
+### How it builds
+
+- Ant's headers need Clang, so `engine.cmake` compiles Ant, its dependencies and the adapter
+  with Clang (`--target=thumbv6m-none-eabi -fshort-enums -femulated-tls`, matching
+  arm-none-eabi GCC's ABI), using GCC's newlib and libstdc++ headers (Clang's own headers
+  first, and `-include stdint.h` for newlib's `stdatomic.h`). GCC links.
+- Sources: the `"embed"` list of the patched `sources.json`, plus `adapter_ant.c`.
+- Dependencies (versions from Ant's `vendor/*.wrap` at the tag): pcre2 10.47 (Ant's patch; JIT
+  off), utf8proc 2.10.0, yyjson 0.12.0, crprintf, uthash 2.3.0, aklomp-base64 0.5.2,
+  double-conversion 3.4.0 (`third_party/patches/double-conversion/`: no `std::locale`).
+- RP2040 memory settings (`ANT_EMBED_*` in `engine.cmake`): 2 KB GC chunks, 128 KB object heap
+  limit, owner tables over SRAM only, 512 VM stack slots, 32 frames, small handle tables.
+
+## Assessment (2026-10-27, on this tag)
+
+The rest of this file is the source-reading assessment that led to the patches. The blockers
+and asks still describe upstream; the patches above work around them locally.
+
+### Minimal source set (interpreter + GC, no JIT/FFI/Wasm/NAPI/HTTP/Temporal)
 
 Upstream already defines one: the `@antjs.org/wasm` reactor,
 `packages/wasm/meson.build:46-101`. It builds with `-DANT_WASM_EMBED=1`:
@@ -28,7 +85,7 @@ Upstream already defines one: the `@antjs.org/wasm` reactor,
 That is about 72k lines of Ant C in the core, plus the dependencies. Even this set has no
 Date, timers, typed arrays or modules.
 
-## C23 vs the toolchains
+### C23 vs the toolchains
 
 Ant requires `-std=gnu23` and GCC ≥ 14 or Clang ≥ 18 (`BUILDING.md:58,82`). The core uses:
 
@@ -45,7 +102,7 @@ toolchains should be GCC 14 or newer. Both are **unverified**, because nothing c
 compiled here. `src/numbers.cc` and double-conversion also need a C++ compiler and
 `libstdc++` headers.
 
-## OS dependencies and replacements
+### OS dependencies and replacements
 
 | Dependency | Native build | `ANT_WASM_EMBED` build | MCU replacement |
 |---|---|---|---|
@@ -63,7 +120,7 @@ The `ANT_WASM_EMBED` branches are close to what a microcontroller port needs.
 `src/silver/ops/property.h:211,672`, `include/silver/engine.h:238`). But the profile
 cannot be enabled on a non-Wasm target.
 
-## Pointer cage, heap minimums vs 512 KB
+### Pointer cage, heap minimums vs 512 KB
 
 In `ANT_WASM_EMBED` the cage is a no-op: `include/cage.h:8-10` sets
 `ANT_CAGE_MIN_SIZE` to 16 MB, but nothing reserves it, and `ant_cage_set_size` returns false.
@@ -84,7 +141,7 @@ The upstream Wasm package documents a 32 MiB minimum memory (`packages/wasm/READ
 floor is about 10× too large on the best board. An ESP32-S3 module with 8 MB PSRAM
 could in principle hold it, but `esp32s3_devkitc` here is configured as SRAM-only.
 
-## Estimated flash
+### Estimated flash
 
 Not measured. A rough estimate by analogy (QuickJS is about 55k lines and builds to roughly
 500–700 KB of Thumb-2 at `-Os`): the Ant core (about 80k lines with the ops headers) plus pcre2,
@@ -92,7 +149,7 @@ the utf8proc tables, yyjson and double-conversion would be about **1.2–2 MB**.
 pico2/pico2_w (4 MB), esp32s3_devkitc (8 MB) and esp32c3_devkitm (4 MB), and is
 marginal or too large for pico/pico_w (2 MB). Flash is not the binding constraint. RAM is.
 
-## Blockers
+### Blockers
 
 1. **The embed profile is tied to Wasm.** `include/wasm_embed.h:10-11` stops the build with
    `#error "ANT_WASM_EMBED requires a WebAssembly target"`, and the host hooks are
@@ -114,11 +171,11 @@ marginal or too large for pico/pico_w (2 MB). Flash is not the binding constrain
 6. **Unguarded pthreads.** `src/handles.c:15,66` and `include/sync.h:21` use pthread
    mutexes with no single-thread option. pico-sdk has no pthread implementation.
 
-Blockers 1–3 make an adapter impossible without patching `third_party/ant`.
-The local patches would be invasive: they would touch headers used across the whole engine. That
-goes against the project's contribute-upstream policy.
+Blockers 1–3 make an adapter impossible without changing Ant's source. The changes touch
+headers used across the whole engine, so they are kept small and each one is shaped as an
+upstream PR (`third_party/patches/ant/`, contribute-upstream policy).
 
-## Upstream asks (would make this feasible)
+### Upstream asks (would make this feasible)
 
 1. **A generic embed profile**, e.g. `ANT_EMBED`, that is separate from `__wasm__`.
    `ANT_WASM_EMBED` would then build on top of it. The host hooks (`now_ms`, `random_fill`,
