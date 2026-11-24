@@ -1,7 +1,31 @@
+import { posix } from 'node:path'
 import { defineConfig } from 'vitepress'
+
+const REPO = 'https://github.com/stan-kondrat/jsbedded'
+
+// Pages link to repo files outside docs/ with plain relative paths (../../examples/blink/main.ts),
+// which work when browsing the repo on GitHub. The site only has docs/, so the build points
+// those links at the file on GitHub instead.
+function repoLinks(md: any) {
+  md.core.ruler.after('inline', 'jsb-repo-links', (state: any) => {
+    const page = state.env?.relativePath
+    if (!page) return
+    for (const block of state.tokens) {
+      for (const token of block.children ?? []) {
+        if (token.type !== 'link_open') continue
+        const href: string = token.attrGet('href') ?? ''
+        if (!href || /^([a-z]+:|#|\/)/i.test(href)) continue
+        const target = posix.normalize(posix.join('docs', posix.dirname(page), href))
+        if (target.startsWith('docs/') || target.startsWith('..')) continue
+        token.attrSet('href', `${REPO}/blob/main/${target}`)
+      }
+    }
+  })
+}
 
 // Site layout on GitHub Pages: /jsbedded/ = landing (site/), /jsbedded/docs/ = this.
 export default defineConfig({
+  markdown: { config: repoLinks },
   title: 'JSBedded',
   description: 'JavaScript and TypeScript on microcontrollers',
   base: '/jsbedded/docs/',
@@ -9,8 +33,6 @@ export default defineConfig({
   cleanUrls: true,
   lastUpdated: true,
   srcExclude: ['README.md'],
-  // engine pages link to READMEs elsewhere in the repo (outside docs/)
-  ignoreDeadLinks: [/firmware\/engines\/.*\/README/],
   themeConfig: {
     // Wordmark is rendered by the theme (see theme/index.ts); clicking it goes to the landing page.
     siteTitle: false,
@@ -91,10 +113,10 @@ export default defineConfig({
 
     search: { provider: 'local' },
     editLink: {
-      pattern: 'https://github.com/stan-kondrat/jsbedded/edit/main/docs/:path',
+      pattern: `${REPO}/edit/main/docs/:path`,
       text: 'Edit this page on GitHub',
     },
     docFooter: { prev: 'Previous', next: 'Next' },
-    socialLinks: [{ icon: 'github', link: 'https://github.com/stan-kondrat/jsbedded' }],
+    socialLinks: [{ icon: 'github', link: REPO }],
   },
 })

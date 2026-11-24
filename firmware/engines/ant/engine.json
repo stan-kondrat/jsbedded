@@ -3,11 +3,21 @@
   "upstream": "https://github.com/theMackabu/ant",
   "submodules": ["third_party/ant"],
   "unsupported_boards": ["pico_w", "pico2", "pico2_w", "esp32s3_devkitc", "esp32c3_devkitm"],
-  "language": null,
+  "language": "ESNext (100% of compat-table); this build has no Date, typed arrays, Intl or modules",
+  "language_level": "ESNext",
   "min_flash_kb": null,
   "min_ram_kb": null,
   "license": "MIT",
   "features": {
+    "let": true,
+    "closures": true,
+    "exceptions": true,
+    "classes": true,
+    "arrow_functions": true,
+    "promises": true,
+    "json": true,
+    "stdlib_objects": true,
+    "typed_arrays": true,
     "host_functions": true
   }
 }
