@@ -93,6 +93,10 @@ jobs:
           if [ "${{ matrix.platform }}" = pico ]; then
             sudo apt-get install -y -qq --no-install-recommends cmake ninja-build ccache \
               gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib
+            # Ant's headers use C23 constexpr: Clang 19 or newer (the runner's default clang is 18).
+            if [ "${{ matrix.engine }}" = ant ]; then
+              sudo apt-get install -y -qq --no-install-recommends clang-19
+            fi
           else
             sudo apt-get install -y -qq --no-install-recommends ccache
           fi

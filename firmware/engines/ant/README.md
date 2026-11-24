@@ -12,7 +12,7 @@ to a copy under `build/` (see `engine.cmake`); the submodule stays pristine.
 make firmware BOARD=pico ENGINE=ant SCRIPT=examples/blink/main.js
 ```
 
-Needs, besides the pico-sdk toolchain: Clang ≥ 18 (`clang`/`clang++` on `PATH`, or
+Needs, besides the pico-sdk toolchain: Clang ≥ 19 (`clang`/`clang++` on `PATH`, or
 `JSB_ANT_CC`/`JSB_ANT_CXX`) and network access at configure time (the dependencies are
 downloaded with pinned SHA-256s, see "How it builds").
 

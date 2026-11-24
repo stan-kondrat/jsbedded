@@ -32,8 +32,10 @@ set(JSB_ANT_GEN ${CMAKE_BINARY_DIR}/jsb-ant-gen)
 set(JSB_ANT_OBJ ${CMAKE_BINARY_DIR}/jsb-ant-obj)
 set(JSB_ANT_DEPS_DIR ${CMAKE_BINARY_DIR}/jsb-ant-deps CACHE PATH "Ant dependency cache")
 
-find_program(JSB_ANT_CC NAMES clang DOC "Clang C compiler for Ant")
-find_program(JSB_ANT_CXX NAMES clang++ DOC "Clang C++ compiler for Ant")
+# Clang 19 or newer (C23 constexpr); versioned names first, since a distribution's
+# plain "clang" may be older.
+find_program(JSB_ANT_CC NAMES clang-21 clang-20 clang-19 clang DOC "Clang C compiler for Ant")
+find_program(JSB_ANT_CXX NAMES clang++-21 clang++-20 clang++-19 clang++ DOC "Clang C++ compiler for Ant")
 set(JSB_ANT_TARGET_FLAGS "--target=thumbv6m-none-eabi;-mcpu=cortex-m0plus;-mfloat-abi=soft;-fshort-enums"
     CACHE STRING "Target flags for JSB_ANT_CC / JSB_ANT_CXX")
 
@@ -198,6 +200,10 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     endif()
     if(NOT JSB_ANT_CC OR NOT JSB_ANT_CXX)
         message(FATAL_ERROR "ENGINE=ant needs Clang (Ant's headers do not build with GCC): set JSB_ANT_CC and JSB_ANT_CXX")
+    endif()
+    execute_process(COMMAND ${JSB_ANT_CC} -dumpversion OUTPUT_VARIABLE _ant_clang_ver OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(_ant_clang_ver VERSION_LESS 19)
+        message(FATAL_ERROR "ENGINE=ant needs Clang 19 or newer for C23 constexpr; ${JSB_ANT_CC} is ${_ant_clang_ver}. Set JSB_ANT_CC and JSB_ANT_CXX.")
     endif()
     find_package(Git REQUIRED)
 
