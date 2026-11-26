@@ -110,12 +110,6 @@ uint32_t jsb_hal_image_id(void)
     return 0;
 }
 
-/* TEMP-TRACE: core/src/main.c traces boot steps; the trace itself is Pico-only (hal_pico.c). */
-void jsb_trace(const char *what)
-{
-    (void)what;
-}
-
 void app_main(void)
 {
     jsb_main();

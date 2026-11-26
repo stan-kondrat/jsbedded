@@ -36,6 +36,7 @@
 
 #include "jsb/engine.h"
 #include "jsb/hal.h"
+#include "jsb/trace.h"
 
 #define MAX_HOST_FNS 32
 #define MAX_FUNCS 32
@@ -174,7 +175,6 @@ const char *jsb_engine_name(void)
     return "ant";
 }
 
-void jsb_trace(const char *what); /* TEMP-TRACE */
 #define T(x) jsb_trace(x)
 
 jsb_engine *jsb_engine_create(void)

@@ -5,8 +5,6 @@ type-checks them, so examples cannot go stale.
 
 - `main.ts` + `tsconfig.json` — source, compiled to ES5 `main.js` (committed) by
   `cd js && npm run examples`.
-- `example.json` (optional) — `{"script", "boards", "engines"}`: CI builds firmware
-  images with the script built in, released as `jsbedded-<board>-<engine>-<name>`.
 
 | Example | Status |
 |---|---|

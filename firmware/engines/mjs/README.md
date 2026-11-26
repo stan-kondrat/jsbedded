@@ -19,7 +19,7 @@ bound yet: the engine links [`common/host_unsupported.c`](../common/host_unsuppo
 so there are no timers, `gpio` or `board`. `console.log` is installed by the adapter
 as a native function; mJS's own `print()` also works.
 
-Untested: no board build and no run on hardware yet.
+Builds in CI for all 6 boards; not run on hardware yet.
 
 ## Language
 

@@ -38,12 +38,16 @@ target_compile_definitions(jsbedded PRIVATE ${JSB_CORE_DEFINITIONS}
     PICO_STDIO_USB_ENABLE_TINYUSB_INIT=1
     PICO_STDIO_USB_ENABLE_IRQ_BACKGROUND_TASK=1
     PICO_ENABLE_USB_RESET_VIA_BAUD_RATE=1)
+if(JSB_TRACE)
+    # Diagnostic build (make ... TRACE=1): jsb/trace.h. Prints every allocation of 1 KB or more.
+    target_compile_definitions(jsbedded PRIVATE JSB_TRACE=1)
+    target_link_options(jsbedded PRIVATE -Wl,--wrap=_malloc_r)
+endif()
 target_link_libraries(jsbedded pico_stdlib pico_unique_id hardware_flash tinyusb_device
     ${JSB_CORE_LINK_LIBRARIES})
 
 pico_set_program_name(jsbedded "JSBedded")
 pico_set_program_version(jsbedded "${JSB_VERSION}")
-target_link_options(jsbedded PRIVATE -Wl,--wrap=_malloc_r) # TEMP-TRACE
 pico_enable_stdio_usb(jsbedded 1)
 pico_enable_stdio_uart(jsbedded 1)
 pico_add_extra_outputs(jsbedded)

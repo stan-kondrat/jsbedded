@@ -3,8 +3,7 @@
 #   push to main -> build + refresh the rolling "latest" pre-release
 #   tag v*       -> build + release for that tag
 # The matrix comes from the folders: firmware/boards/*/board.mk × firmware/engines/*/engine.cmake,
-# minus each engine.json "unsupported_boards", plus example images listed in
-# examples/*/example.json (scripts/matrix/ci-matrix.sh).
+# minus each engine.json "unsupported_boards" (scripts/matrix/ci-matrix.sh).
 # The js job type-checks the examples and checks their committed ES5 output is current.
 name: firmware
 
@@ -183,8 +182,7 @@ jobs:
           if [ "${{ matrix.platform }}" = esp-idf ]; then
             . third_party/esp-idf/export.sh > /dev/null
           fi
-          script="${{ matrix.script }}"
-          make firmware BOARD=${{ matrix.board }} ENGINE=${{ matrix.engine }} ${script:+SCRIPT=$script} 2>&1 |
+          make firmware BOARD=${{ matrix.board }} ENGINE=${{ matrix.engine }} 2>&1 |
             tee "$RUNNER_TEMP/build.log"
           ccache --show-stats || true
 

@@ -6,7 +6,7 @@ to a copy under `build/` (see `engine.cmake`); the submodule stays pristine.
 
 ## Status (2026-11-21)
 
-**Builds for `pico` (RP2040). Not yet run on hardware.**
+**Builds for `pico` (RP2040); the blink example runs on hardware (2026-11-21).**
 
 ```bash
 make firmware BOARD=pico ENGINE=ant SCRIPT=examples/blink/main.js

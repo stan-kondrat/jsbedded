@@ -30,6 +30,11 @@ is given: `core/core.cmake` turns the file into a C array at configure time. Wit
 as a suffix (`examples/blink/main.js` → `-blink`). The script must already be
 JavaScript the engine runs (ES5 for MQuickJS); TypeScript is compiled in `js/`.
 
+`TRACE=1` (Pico only) builds a diagnostic image for bringing up or troubleshooting an engine: it waits up
+to 20 s for a USB serial host at boot and prints heap/stack use at each boot step and every allocation of
+1 KB or more ([`hal/include/jsb/trace.h`](hal/include/jsb/trace.h)). Normal images leave it out; the
+steps still go to `CRASH.TXT`.
+
 | Folder | Role |
 |---|---|
 | `core/` | Boot, script loader, event loop, safe mode / recovery, error reporting |

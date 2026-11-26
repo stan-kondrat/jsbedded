@@ -314,6 +314,9 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     set(_ant_flags ${JSB_ANT_TARGET_FLAGS}
         -Os -ffunction-sections -fdata-sections -fno-math-errno -fno-trapping-math -fwrapv -w
         -femulated-tls -include stdint.h)
+    if(JSB_TRACE)
+        list(APPEND _ant_flags -DJSB_TRACE=1) # adapter_ant.c: hal/include/jsb/trace.h
+    endif()
     foreach(d ${JSB_ANT_EMBED_DEFINITIONS})
         list(APPEND _ant_flags -D${d})
     endforeach()
@@ -362,5 +365,5 @@ set(JSB_ENGINE_SOURCES ${JSB_ANT_OBJECTS})
 # Ant's parser and compiler recurse deeply (blink: 8.4 KB measured): 4 KB of main RAM joins the 8 KB
 # scratch-RAM stack (hal/pico/hal_pico.c), and Ant's own limit (JSB_ANT_STACK_SIZE)
 # stays ~2 KB short of the total for the frames between its checks.
-set(JSB_ENGINE_DEFINITIONS JSB_PICO_STACK_RESERVE=4096) # TEMP-TRACE: was also PICO_MALLOC_PANIC=0
+set(JSB_ENGINE_DEFINITIONS JSB_PICO_STACK_RESERVE=4096 PICO_MALLOC_PANIC=0)
 set(JSB_ENGINE_LINK_LIBRARIES m)

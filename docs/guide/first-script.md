@@ -44,8 +44,7 @@ one script, take it built in:
 make firmware BOARD=pico ENGINE=mquickjs SCRIPT=examples/blink/main.js
 ```
 
-`jsbedded-pico-mquickjs-blink.uf2` / `jsbedded-pico2-mquickjs-blink.uf2` in the
-`latest` release are built this way. A script on the drive still takes precedence.
+A script on the drive still takes precedence.
 
 Errors are printed with their position, e.g. `Uncaught TypeError: … at main.js:9:9`;
 the event loop keeps running the other timers.

@@ -21,6 +21,7 @@
 #include "jsb/crash.h"
 #include "jsb/engine.h"
 #include "jsb/hal.h"
+#include "jsb/trace.h"
 #include "jsb/version.h"
 #ifdef JSB_STORAGE
 #include "jsb/storage.h"
@@ -130,8 +131,6 @@ static void install_apis(jsb_engine *engine)
     jsb_board_install(engine);
 }
 
-void jsb_trace(const char *what); /* TEMP-TRACE */
-
 /* After JSB_CRASH_STREAK_RESET_MS without a crash, the next one counts from 1 again. */
 static void note_running_fine(void)
 {
@@ -146,7 +145,7 @@ static void run_event_loop(jsb_engine *engine)
 {
     jsb_hal_crash_step("event loop");
     for (int pass = 0;; pass++) {
-        if (pass < 3) jsb_trace("event loop pass"); /* TEMP-TRACE */
+        if (pass < 3) jsb_trace("event loop pass");
         note_running_fine();
         jsb_timers_run_due(engine);
         jsb_engine_run_jobs(engine);
@@ -194,21 +193,21 @@ void jsb_main(void)
     }
 
     jsb_hal_crash_step("starting the engine");
-    jsb_trace("before engine create"); /* TEMP-TRACE */
+    jsb_trace("before engine create");
     jsb_engine *engine = jsb_engine_create();
-    jsb_trace("after engine create"); /* TEMP-TRACE */
+    jsb_trace("after engine create");
     if (engine == NULL) {
         console_print("JSBedded: no JavaScript engine in this image\r\n");
         idle_forever();
     }
     jsb_hal_crash_step("installing the APIs");
     install_apis(engine);
-    jsb_trace("apis installed"); /* TEMP-TRACE */
+    jsb_trace("apis installed");
 
     /* An uncaught error is reported by the engine; timers the script already set keep running. */
     jsb_hal_crash_step("running the script");
     jsb_engine_eval(engine, script.source, script.len, script.name);
-    jsb_trace("script evaluated"); /* TEMP-TRACE */
+    jsb_trace("script evaluated");
     jsb_engine_run_jobs(engine);
     run_event_loop(engine);
 

@@ -7,6 +7,7 @@
 #   include hal/$(PLATFORM)/platform.mk  -> wraps the platform SDK build (CMake for pico-sdk / ESP-IDF)
 #   engines/$(ENGINE)/engine.cmake       -> engine sources, read by core/core.cmake
 #   SCRIPT=<file.js>                     -> built in as the boot script (default: core/boot.js)
+#   TRACE=1                              -> diagnostic build for engine bring-up (jsb/trace.h, Pico only)
 #   output: $(BUILD_DIR)/<variant>/jsbedded-<variant>.<uf2|bin>, where <variant> is
 #   $(BOARD)-$(ENGINE), plus -<name of the script folder> with SCRIPT (./blink/main.js -> -blink)
 

@@ -26,8 +26,10 @@ void *_sbrk(int incr)
         heap_end = &end;
     }
     if (incr > limit - heap_end) {
-        printf("trace: sbrk FAILED incr=%d heap_end=%08lx limit=%08lx\r\n", incr, /* TEMP-TRACE */
-               (unsigned long)(uintptr_t)heap_end, (unsigned long)(uintptr_t)limit); /* TEMP-TRACE */
+#ifdef JSB_TRACE
+        printf("trace: sbrk FAILED incr=%d heap_end=%08lx limit=%08lx\r\n", incr, (unsigned long)(uintptr_t)heap_end,
+               (unsigned long)(uintptr_t)limit);
+#endif
         return (void *)-1;
     }
     char *prev = heap_end;
@@ -35,7 +37,7 @@ void *_sbrk(int incr)
     return prev;
 }
 
-/* TEMP-TRACE begin */
+#ifdef JSB_TRACE
 #include <malloc.h>
 #include "pico/stdio_usb.h"
 #include "hardware/watchdog.h"
@@ -99,7 +101,7 @@ static void trace_start(void)
     }
     jsb_trace("hal init");
 }
-/* TEMP-TRACE end */
+#endif /* JSB_TRACE */
 
 #include "jsb/core.h"
 #include "jsb/hal.h"
@@ -110,7 +112,9 @@ void jsb_hal_init(void)
     jsb_pico_devmode_init();
     stdio_init_all();
     jsb_hal_image_id(); /* computed now: a crash record needs it, and a fault can't wait for it */
-    trace_start(); /* TEMP-TRACE */
+#ifdef JSB_TRACE
+    trace_start();
+#endif
 
     uint32_t firmware_kb, drive_kb;
     if (!jsb_pico_drive_check(&firmware_kb, &drive_kb) && drive_kb > 0) {
